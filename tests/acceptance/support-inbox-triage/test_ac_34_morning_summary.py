@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 
 def test_ac_34_morning_summary(h: SimpleNamespace, tmp_path: Path) -> None:
-    """AC-34: seven summary lines in a fixed order, at the top of report.md and report.html."""
+    """AC-34: seven summary lines in a fixed order, at the top of report.md and in report.html's Everything else section."""
     emails = [
         h.email(1, subject="S1"),
         h.email(2, subject="S2"),
@@ -79,11 +79,11 @@ def test_ac_34_morning_summary(h: SimpleNamespace, tmp_path: Path) -> None:
     md = (tmp_path / "report.md").read_text()
     page = (tmp_path / "report.html").read_text()
     table_md = md.index("| Email |")
-    table_html = page.index("<table")
+    rest = page[page.index('<details id="rest"') :]
     for line in report.summary:
         assert -1 < md.find(line.text) < table_md
     for text in ("Urgent (2):", "SCAM WARNING (1):", "Drafts ready to review: 2"):
-        assert -1 < page.find(text) < table_html
+        assert text in rest
 
     quiet = h.client({"Calm": h.parsed(h.cls("spam", 0.95))})
     _, calm = h.run([h.email(8, subject="Calm")], quiet, tmp_path / "calm")
