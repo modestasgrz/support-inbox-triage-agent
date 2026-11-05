@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -73,7 +74,14 @@ def test_scan_injection_patterns(text: str, pattern: str | None) -> None:
 
 def test_fence_escapes_every_field_and_caps_body() -> None:
     block = fence(email(sender="<x>", subject="a<b", body="1234567890"), 4)
-    assert block == "<email>\nFrom: &lt;x&gt;\nSubject: a&lt;b\n\n1234\n</email>"
+    tag = block.splitlines()[0][1:-1]
+    assert re.fullmatch(r"email-[0-9a-f]{16}", tag)
+    assert block == f"<{tag}>\nFrom: &lt;x&gt;\nSubject: a&lt;b\n\n1234\n</{tag}>"
+
+
+def test_fence_tag_differs_across_messages() -> None:
+    tags = {fence(email(), 100).splitlines()[0] for _ in range(50)}
+    assert len(tags) == 50
 
 
 @pytest.mark.parametrize(
