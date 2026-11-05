@@ -12,6 +12,16 @@ dependencies = [
     "pydantic-settings",
 ]
 
+[project.scripts]
+support-inbox-triage = "src.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
 [dependency-groups]
 dev = [
     "mypy",
@@ -31,7 +41,7 @@ ignore = ["E501"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-exclude = ["^\\.semgrep/", "^\\.claude/", "^scripts/"]
+exclude = ["^\\.semgrep/", "^\\.claude/", "^scripts/", "^tests/acceptance/"]
 
 [[tool.mypy.overrides]]
 module = ["googleapiclient.*", "google_auth_oauthlib.*", "google.oauth2.*", "google.auth.*"]
