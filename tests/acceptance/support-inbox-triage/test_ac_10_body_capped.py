@@ -23,11 +23,13 @@ def test_ac_10_body_capped(h: SimpleNamespace, tmp_path: Path) -> None:
         if "Long one" in c.kwargs["messages"][0]["content"]
     )
     block = re.search(
-        r"<email>(.*?)</email>", long_call.kwargs["messages"][0]["content"], re.DOTALL
+        r"<(email-[0-9a-f]{16})>(.*?)</\1>",
+        long_call.kwargs["messages"][0]["content"],
+        re.DOTALL,
     )
     assert block is not None
-    assert body[:8000] in block.group(1)
-    assert body[:8001] not in block.group(1)
+    assert body[:8000] in block.group(2)
+    assert body[:8001] not in block.group(2)
     assert h.outcome(report, "m1").truncated is True
     empty = h.outcome(report, "m2")
     assert empty.truncated is False
