@@ -549,3 +549,96 @@ def test_everything_else_count_is_spam_other_read_review_failed(
     assert "Failed — retried next run <span>2</span>" in bottom
     numbers = visible(page.split('<div class="numbers">')[1].split("</div></div>")[0])
     assert numbers == "0 Needs you 1 Drafts ready 2 Invoices due 2 Spam"
+
+
+def test_free_text_is_defanged_and_draft_copies_verbatim(tmp_path: Path) -> None:
+    link = 'see http://refunds-portal.example/x www.evil.example <a href="y"> url(z) @import src=q'
+    page = render(
+        tmp_path,
+        [
+            outcome(
+                1,
+                reason=link,
+                evidence_quote=link,
+                draft_id="d1",
+                draft_text="Returns: https://lumenfold.example/returns",
+            )
+        ],
+        [mail(1, subject=link)],
+    )
+    for banned in ("://", "www.", "href=", "src=", "url(", "@import"):
+        assert banned not in page.split("<script")[0]
+    assert "http[:]//refunds-portal.example" in page and "www[.]evil" in page
+    pre = re.search(r"<pre>(.*?)</pre>", page)
+    assert (
+        pre
+        and html.unescape(pre.group(1)) == "Returns: https://lumenfold.example/returns"
+    )
+
+
+def test_urgent_by_hand_card_leads_with_note(tmp_path: Path) -> None:
+    page = render(
+        tmp_path,
+        [
+            outcome(
+                1,
+                suspicious=True,
+                answer_by_hand=True,
+                escalation=True,
+                urgent_reason='escalation: "chargeback"',
+                labels=[
+                    "Triage/Support",
+                    "Triage/Suspicious",
+                    "Triage/Answer by hand",
+                    "Triage/Urgent",
+                ],
+            )
+        ],
+        [mail(1)],
+    )
+    card = page.split('id="needs-you"')[1].split("</section>")[0]
+    assert 'class="card urgent"' in card
+    why = re.search(r'<p class="why">(.*?)</p>', card)
+    assert why and BY_HAND_NOTE in why.group(1)
+    assert "chargeback" in card and page.count(BY_HAND_NOTE) == 1
+
+
+def test_unread_spam_not_listed_as_marked_read(tmp_path: Path) -> None:
+    page = render(
+        tmp_path,
+        [
+            outcome(
+                1, category=Category.SPAM, marked_read=True, labels=["Triage/Spam"]
+            ),
+            outcome(
+                2,
+                category=Category.SPAM,
+                suspicious=True,
+                labels=["Triage/Spam", "Triage/Suspicious"],
+            ),
+            outcome(
+                3,
+                category=Category.SPAM,
+                confidence=0.4,
+                needs_review=True,
+                labels=["Triage/Spam", "Triage/Needs review"],
+            ),
+            outcome(
+                4,
+                category=Category.OTHER,
+                suspicious=True,
+                labels=["Triage/Other", "Triage/Suspicious"],
+            ),
+        ],
+        [mail(i) for i in range(1, 5)],
+    )
+    rest = page.split('<details id="rest">')[1]
+    spam_group = rest.split("Spam, marked read")[1].split("</ul>")[0]
+    assert (
+        "Subject 1" in spam_group
+        and "Subject 2" not in spam_group
+        and "Subject 3" not in spam_group
+    )
+    unread = rest.split("Suspicious, left unread")[1].split("</ul>")[0]
+    assert "Subject 2" in unread and "Subject 4" in unread
+    assert re.search(r"Everything else <span>4</span>", page)

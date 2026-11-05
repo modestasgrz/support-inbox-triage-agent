@@ -742,12 +742,15 @@ def test_html_no_anchor_and_escaped_summary(tmp_path: Path) -> None:
     assert page.count("<script") == 1 and "<script>alert" not in page
     assert "<img" not in page
     needs = page.split('id="needs-you"')[1].split("</section>")[0]
-    assert html.escape(subject) in needs
-    assert "&lt;img src=x onerror=1&gt;" in needs
+    assert (
+        "&lt;a href&#61;&quot;http[:]//evil.example&quot;&gt;click&lt;/a&gt; &amp; co"
+        in needs
+    )
+    assert "&lt;img src&#61;x onerror=1&gt;" in needs
     scams = page.split('id="scams"')[1].split("</section>")[0]
     assert "<code>evil[.]example</code>" in scams
     rest = page.split('<details id="rest">')[1]
-    assert html.escape(subject[:60]) in rest
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in rest
 
 
 def test_html_summary_scam_alert_only_with_warnings(tmp_path: Path) -> None:

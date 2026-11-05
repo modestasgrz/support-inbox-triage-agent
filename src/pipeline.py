@@ -457,8 +457,19 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
         )
     (out_dir / "report.md").write_text("\n".join(lines) + "\n")
 
-    def h(value: object) -> str:
-        return html.escape(str(value if value is not None else ""))
+    def h(value: object, defang: bool = True) -> str:
+        # Escaped, then link-shaped text is broken (as in report.md) or, for draft text that must copy verbatim,
+        # entity-encoded so the file never holds a URL scheme, href=/src=, url( or @import.
+        text = html.escape(str(value if value is not None else ""))
+        if defang:
+            text = re.sub(r"(?i)\bwww\.", "www[.]", text.replace("://", "[:]//"))
+        text = text.replace("://", "&#58;//")
+        text = re.sub(r"(?i)\b(href|src)=", r"\1&#61;", text)
+        return re.sub(
+            r"(?i)url\(|@import",
+            lambda m: "&#" + str(ord(m[0][0])) + ";" + m[0][1:],
+            text,
+        )
 
     def day(d: date | None) -> str:
         return f"{d.day} {d:%b %Y}" if d else ""
@@ -474,7 +485,7 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
         return (
             f"{(o.currency or '').upper()} {o.amount_due:,.2f}".strip()
             if o.amount_due is not None
-            else "amount not found"
+            else "—"
         )
 
     ok = [o for o in report.outcomes if o.status == "ok"]
@@ -493,8 +504,16 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
         key=lambda o: o.event_date or date.max,
     )
     spam = [o for o in ok if o.category == Category.SPAM]
+    spam_read = [o for o in spam if o.marked_read]
     other_read = [o for o in ok if o.category == Category.OTHER and o.marked_read]
     review = [o for o in ok if o.needs_review]
+    unread_suspicious = [
+        o
+        for o in ok
+        if o.suspicious
+        and not (o.answer_by_hand or o.needs_review or o.event_date)
+        and o.category != Category.INVOICE
+    ]
     failed = [o for o in report.outcomes if o.status == "failed"]
     started = report.started_at
     when = f"{started:%A} {started.day} {started:%b}"
@@ -532,20 +551,22 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
 
     cards = []
     for o in needs:
-        if o.overdue:
-            why = f"Invoice overdue · {h(money(o))}"
-        elif o.urgent_reason:
-            why = (
-                "Escalation — "
-                + h(o.urgent_reason.removeprefix("escalation").removeprefix(": "))
-                if o.urgent_reason != "escalation"
-                else "Escalation"
-            )
-        else:
-            why = f'<span class="cap">{h(BY_HAND_NOTE)}</span>'
+        urgent = (
+            "Invoice overdue"
+            + (f" · {h(money(o))}" if o.amount_due is not None else "")
+            if o.overdue
+            else f'<span class="cap">{h(o.urgent_reason)}</span>'
+            if o.urgent_reason
+            else ""
+        )
+        why = (
+            f'<span class="cap">{h(BY_HAND_NOTE)}</span>'
+            if o.answer_by_hand
+            else urgent
+        )
         extra = []
-        if o.urgent_reason and o.answer_by_hand:
-            extra.append(f'<span class="cap">{h(BY_HAND_NOTE)}</span>')
+        if o.answer_by_hand and urgent:
+            extra.append(f'<span class="urgent-line">{urgent}</span>')
         if o.scam_warning:
             extra.append("Carries a scam attempt — see below.")
         if o.draft_text is not None:
@@ -579,7 +600,7 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
 
     draft_cards = "".join(
         f'<article class="draft-card" title="email id {h(o.email_id)}">{head(o)}<p class="gist" title="{h(o.reason)}">{h(o.reason)}</p>'
-        f'<div class="toggles"><details class="draft"><summary>Show draft</summary><pre>{h(o.draft_text)}</pre>'
+        f'<div class="toggles"><details class="draft"><summary>Show draft</summary><pre>{h(o.draft_text, defang=False)}</pre>'
         f'<button type="button" class="copy">Copy</button></details>'
         f'<details class="why"><summary>Why</summary><p>They wrote: <q>{h(o.evidence_quote)}</q></p></details></div></article>'
         for o in drafted
@@ -593,7 +614,7 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
     invoices_html = ""
     if invoices:
         rows = "".join(
-            f'<tr title="email id {h(o.email_id)}"><td>{who(o)}</td><td class="num">{h(money(o)) if o.amount_due is not None else "—"}</td>'
+            f'<tr title="email id {h(o.email_id)}"><td>{who(o)}</td><td class="num">{h(money(o))}</td>'
             f"<td>{h(day(o.due_date)) or '—'}</td><td>"
             + ('<span class="tag overdue">overdue</span>' if o.overdue else "")
             + ('<span class="tag">check sender</span>' if o.suspicious else "")
@@ -645,12 +666,18 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
         + "</li>"
         for o in report.outcomes
     )
-    rest_n = len(spam) + len(other_read) + len(review) + len(failed)
+    rest_n = len(
+        {
+            o.email_id
+            for o in (*review, *failed, *unread_suspicious, *spam_read, *other_read)
+        }
+    )
     rest_html = (
         f'<details id="rest"><summary>Everything else <span>{rest_n}</span></summary>'
         + group("Needs a look", review, detail=True)
         + group("Failed — retried next run", failed, detail=True)
-        + group("Spam, marked read", spam)
+        + group("Suspicious, left unread", unread_suspicious, detail=True)
+        + group("Spam, marked read", spam_read)
         + group("Other, marked read", other_read)
         + '<h3>Morning summary, plain text</h3><ul class="plain small">'
         + "".join(f"<li>{h(line.text)}</li>" for line in report.summary)
@@ -691,7 +718,7 @@ p{{margin:0}} .quiet{{color:var(--soft);font-size:.92rem}}
 .who b{{font-weight:600}} .who span{{display:block}}
 .card{{border-left:3px solid var(--amber-bar);padding:.2rem 0 .2rem 1.1rem;margin:1.3rem 0}}
 .card.urgent{{border-left-color:var(--red)}}
-.why{{margin-top:.25rem}} .card.urgent .why{{color:var(--red)}}
+.why{{margin-top:.25rem}} .card.urgent .why,.urgent-line{{color:var(--red)}}
 .cap{{display:inline-block}} .cap::first-letter{{text-transform:uppercase}}
 .also,.due{{color:var(--soft);font-size:.92rem}} .due{{font-variant-numeric:tabular-nums}}
 #scams{{border:1px solid #e3c9bd;background:#fbf1ec;border-radius:6px;padding:1.4rem 1.5rem}}
@@ -739,7 +766,7 @@ footer{{margin-top:3rem;color:var(--soft);font-size:.85rem}}
 document.querySelectorAll("button.copy").forEach(function (b) {{
   b.addEventListener("click", function () {{
     var text = b.previousElementSibling;
-    function pick() {{ getSelection().selectAllChildren(text); b.textContent = "Selected — press Copy"; }}
+    function pick() {{ getSelection().selectAllChildren(text); b.textContent = "Selected — press ⌘C"; }}
     if (!navigator.clipboard) {{ pick(); return; }}
     navigator.clipboard.writeText(text.textContent).then(function () {{
       b.textContent = "Copied";
