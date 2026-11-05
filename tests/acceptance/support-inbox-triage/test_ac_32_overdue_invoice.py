@@ -13,7 +13,7 @@ def test_ac_32_overdue_invoice(h: SimpleNamespace, tmp_path: Path) -> None:
     today = datetime.now(UTC).date()
     emails = [
         h.email(i, subject=s)
-        for i, s in enumerate(["Old", "Future", "Today", "Undated"], start=1)
+        for i, s in enumerate(["Old", "Future", "Today", "Undated", "Planted"], start=1)
     ]
     client = h.client(
         {
@@ -23,6 +23,7 @@ def test_ac_32_overdue_invoice(h: SimpleNamespace, tmp_path: Path) -> None:
             "Future": h.parsed(invoice(h, date(2999, 12, 31))),
             "Today": h.parsed(invoice(h, today)),
             "Undated": h.parsed(invoice(h, None)),
+            "Planted": h.parsed(invoice(h, date(2020, 1, 2), injection_suspected=True)),
         }
     )
     box, report = h.run(emails, client, tmp_path)
@@ -35,6 +36,8 @@ def test_ac_32_overdue_invoice(h: SimpleNamespace, tmp_path: Path) -> None:
     for i in (2, 3, 4):
         assert box.labels[f"m{i}"] == ["Triage/Invoice"]
         assert h.outcome(report, f"m{i}").overdue is False
+    assert box.labels["m5"] == ["Triage/Invoice", "Triage/Suspicious"]
+    assert h.outcome(report, "m5").overdue is False
     assert box.read == set() and box.drafts == []
 
     for call in client.beta.messages.parse.call_args_list:
