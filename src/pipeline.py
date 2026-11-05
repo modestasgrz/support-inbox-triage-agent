@@ -2,6 +2,7 @@ import html
 import re
 import unicodedata
 from datetime import UTC, date, datetime
+from email.utils import parseaddr
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -459,57 +460,294 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
     def h(value: object) -> str:
         return html.escape(str(value if value is not None else ""))
 
-    tiles = "".join(
-        f'<div class="tile"><b>{h(v)}</b><span>{h(k.replace("_", " "))}</span></div>'
-        for k, v in report.counts.model_dump().items()
-    )
-    alert = (
-        " alert"
-        if any(o.scam_warning for o in report.outcomes if o.status == "ok")
-        else ""
-    )
-    summary = "".join(
-        f'<li class="{line.kind}{alert if line.kind == "scam" else ""}">{h(line.text)}</li>'
-        for line in report.summary
-    )
-    rows = []
-    for o in report.outcomes:
-        e = emails[o.email_id]
-        chips = "".join(
-            f'<span class="chip {h(f.split()[0].lower())}">{h(f)}</span>'
-            for f in flags(o)
+    def day(d: date | None) -> str:
+        return f"{d.day} {d:%b %Y}" if d else ""
+
+    def who(o: Outcome) -> str:
+        name, address = parseaddr(emails[o.email_id].sender)
+        return h(name or address or emails[o.email_id].sender)
+
+    def head(o: Outcome) -> str:
+        return f'<p class="who"><b>{who(o)}</b> <span>{h(emails[o.email_id].subject)}</span></p>'
+
+    def money(o: Outcome) -> str:
+        return (
+            f"{(o.currency or '').upper()} {o.amount_due:,.2f}".strip()
+            if o.amount_due is not None
+            else "amount not found"
         )
-        conf = f"{o.confidence:.2f}" if o.confidence is not None else ""
-        rows.append(
-            f"<tr><td>{h(o.email_id)}</td><td>{h(e.sender)}<br><small>{h(e.subject)}</small></td><td>{h(o.category)}</td><td>{h(conf)}</td>"
-            f"<td>{h(', '.join(o.labels))}</td><td>{chips}</td><td>{h(o.reason)}<br><q>{h(o.evidence_quote)}</q></td><td>{h(note(o))}</td><td><div class='reply'>{h(o.draft_text)}</div></td></tr>"
+
+    ok = [o for o in report.outcomes if o.status == "ok"]
+    needs = sorted(
+        (o for o in ok if o.urgent_reason or o.answer_by_hand),
+        key=lambda o: o.urgent_reason is None,
+    )
+    scams = [o for o in ok if o.scam_warning]
+    drafted = [o for o in ok if o.draft_text is not None]
+    invoices = sorted(
+        (o for o in ok if o.category == Category.INVOICE),
+        key=lambda o: o.due_date or date.max,
+    )
+    dated = sorted(
+        (o for o in ok if o.event_date is not None),
+        key=lambda o: o.event_date or date.max,
+    )
+    spam = [o for o in ok if o.category == Category.SPAM]
+    other_read = [o for o in ok if o.category == Category.OTHER and o.marked_read]
+    review = [o for o in ok if o.needs_review]
+    failed = [o for o in report.outcomes if o.status == "failed"]
+    started = report.started_at
+    when = f"{started:%A} {started.day} {started:%b}"
+    n = len(needs)
+    title = (
+        "nothing needs you"
+        if n == 0
+        else "1 thing needs you"
+        if n == 1
+        else f"{n} things need you"
+    )
+    urgent_n = sum(o.urgent_reason is not None for o in ok)
+    by_hand_n = sum(o.answer_by_hand for o in ok)
+    lede = ", ".join(
+        part
+        for part in (
+            f"{urgent_n} urgent" if urgent_n else "",
+            f"{by_hand_n} to answer yourself" if by_hand_n else "",
+            f"{len(scams)} scam{'s' if len(scams) != 1 else ''} blocked"
+            if scams
+            else "",
+            f"{len(drafted)} draft{'s' if len(drafted) != 1 else ''} ready",
         )
+        if part
+    )
+    numbers = "".join(
+        f"<div><b>{v}</b><span>{k}</span></div>"
+        for k, v in (
+            ("Needs you", n),
+            ("Drafts ready", len(drafted)),
+            ("Invoices due", len(invoices)),
+            ("Spam", len(spam)),
+        )
+    )
+
+    cards = []
+    for o in needs:
+        if o.overdue:
+            why = f"Invoice overdue · {h(money(o))}"
+        elif o.urgent_reason:
+            why = (
+                "Escalation — "
+                + h(o.urgent_reason.removeprefix("escalation").removeprefix(": "))
+                if o.urgent_reason != "escalation"
+                else "Escalation"
+            )
+        else:
+            why = f'<span class="cap">{h(BY_HAND_NOTE)}</span>'
+        extra = []
+        if o.urgent_reason and o.answer_by_hand:
+            extra.append(f'<span class="cap">{h(BY_HAND_NOTE)}</span>')
+        if o.scam_warning:
+            extra.append("Carries a scam attempt — see below.")
+        if o.draft_text is not None:
+            extra.append("Reply drafted — see below.")
+        due = f'<p class="due">Due {h(day(o.due_date))}</p>' if o.due_date else ""
+        cards.append(
+            f'<article class="card {"urgent" if o.urgent_reason else "by-hand"}" title="email id {h(o.email_id)}">'
+            f'{head(o)}<p class="why">{why}</p>'
+            + "".join(f'<p class="also">{x}</p>' for x in extra)
+            + f"{due}</article>"
+        )
+    needs_html = "".join(cards) or '<p class="quiet">Nothing needs you today.</p>'
+
+    scam_html = ""
+    if scams:
+        items = "".join(
+            f'<li title="email id {h(o.email_id)}">{head(o)}<p class="bad">'
+            + (
+                " ".join(f"<code>{h(d)}</code>" for d in o.scam_domains)
+                if o.scam_domains
+                else "asks for bank/card details"
+            )
+            + "</p></li>"
+            for o in scams
+        )
+        scam_html = (
+            '<section id="scams"><h2>Scam attempts</h2>'
+            f'<p class="warn">Don\'t reply · don\'t click.</p><ul class="plain">{items}</ul>'
+            '<p class="quiet">These emails hide instructions or links to fake pages. No reply was drafted. The addresses are broken on purpose so they can\'t be opened.</p></section>'
+        )
+
+    draft_cards = "".join(
+        f'<article class="draft-card" title="email id {h(o.email_id)}">{head(o)}<p class="gist" title="{h(o.reason)}">{h(o.reason)}</p>'
+        f'<div class="toggles"><details class="draft"><summary>Show draft</summary><pre>{h(o.draft_text)}</pre>'
+        f'<button type="button" class="copy">Copy</button></details>'
+        f'<details class="why"><summary>Why</summary><p>They wrote: <q>{h(o.evidence_quote)}</q></p></details></div></article>'
+        for o in drafted
+    )
+    drafts_html = (
+        f'<section id="drafts"><h2>Drafts ready <span>{len(drafted)}</span></h2>'
+        '<p class="quiet">Each one is saved in Gmail as a draft on its thread. Read it, edit if needed, then send it yourself.</p>'
+        f"{draft_cards or '<p class=quiet>No drafts this morning.</p>'}</section>"
+    )
+
+    invoices_html = ""
+    if invoices:
+        rows = "".join(
+            f'<tr title="email id {h(o.email_id)}"><td>{who(o)}</td><td class="num">{h(money(o)) if o.amount_due is not None else "—"}</td>'
+            f"<td>{h(day(o.due_date)) or '—'}</td><td>"
+            + ('<span class="tag overdue">overdue</span>' if o.overdue else "")
+            + ('<span class="tag">check sender</span>' if o.suspicious else "")
+            + "</td></tr>"
+            for o in invoices
+        )
+        invoices_html = (
+            f'<section id="invoices"><h2>Invoices <span>{len(invoices)}</span></h2><div class="scroll"><table>'
+            f'<thead><tr><th>Supplier</th><th class="num">Amount</th><th>Due</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>'
+            '<p class="quiet">Left unread in Gmail for you to pay or check.</p></section>'
+        )
+
+    dated_html = ""
+    if dated:
+        items = "".join(
+            f'<li title="email id {h(o.email_id)}"><span class="date">{h(day(o.event_date))}</span>{head(o)}</li>'
+            for o in dated
+        )
+        dated_html = f'<section id="dated"><h2>Has a date <span>{len(dated)}</span></h2><ul class="plain dates">{items}</ul></section>'
+
+    def group(name: str, items: list[Outcome], detail: bool = False) -> str:
+        if not items:
+            return ""
+        lis = "".join(
+            f"<li>{head(o)}"
+            + (
+                f'<p class="quiet">{h(o.injection_reason or o.draft_rejected or o.error_type or o.reason)}</p>'
+                if detail
+                else ""
+            )
+            + "</li>"
+            for o in items
+        )
+        return f'<h3>{name} <span>{len(items)}</span></h3><ul class="plain small">{lis}</ul>'
+
+    every = "".join(
+        f"<li><code>{h(o.email_id)}</code> {h(o.category or o.status)}"
+        + (f" · {o.confidence:.2f}" if o.confidence is not None else "")
+        + f" · {h(', '.join(o.labels) or 'no labels')}"
+        + "".join(
+            f'<br><span class="quiet">{h(text)}</span>'
+            for text in (
+                o.reason,
+                o.evidence_quote and f"“{o.evidence_quote}”",
+                o.injection_reason or o.draft_rejected or o.error_type,
+            )
+            if text
+        )
+        + "</li>"
+        for o in report.outcomes
+    )
+    rest_n = len(spam) + len(other_read) + len(review) + len(failed)
+    rest_html = (
+        f'<details id="rest"><summary>Everything else <span>{rest_n}</span></summary>'
+        + group("Needs a look", review, detail=True)
+        + group("Failed — retried next run", failed, detail=True)
+        + group("Spam, marked read", spam)
+        + group("Other, marked read", other_read)
+        + '<h3>Morning summary, plain text</h3><ul class="plain small">'
+        + "".join(f"<li>{h(line.text)}</li>" for line in report.summary)
+        + '</ul><h3>Every email</h3><ul class="plain small mono">'
+        + every
+        + "</ul><h3>Run</h3>"
+        + f'<p class="small">Model {h(report.model)} · run {h(report.run_id)} · started {h(report.started_at.isoformat(timespec="seconds"))}</p>'
+        + '<p class="small">'
+        + h(
+            ", ".join(
+                f"{k.replace('_', ' ')} {v}"
+                for k, v in report.counts.model_dump().items()
+            )
+        )
+        + "</p>"
+        + f'<p class="small">Skipped (already triaged): {h(", ".join(report.skipped_ids) or "none")}<br>Could not be read (retried next run): {h(", ".join(report.unreadable_ids) or "none")}</p>'
+        + "</details>"
+    )
+
     page = f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><title>Triage run {h(report.run_id)}</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inbox — {h(when)}</title>
 <style>
-body{{font:14px/1.45 system-ui,sans-serif;margin:2rem;color:#1d1d1f;background:#fafaf7}}
-h1{{font-size:1.4rem;margin:0 0 .2rem}} .sub{{color:#666;margin-bottom:1.2rem}}
-.tiles{{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1.5rem}}
-.tile{{background:#fff;border:1px solid #e3e1da;border-radius:8px;padding:.5rem .8rem;min-width:5.5rem}}
-.tile b{{display:block;font-size:1.3rem}} .tile span{{color:#666;font-size:.8rem}}
-table{{border-collapse:collapse;width:100%;background:#fff}}
-th,td{{border-bottom:1px solid #eee;padding:.45rem .5rem;text-align:left;vertical-align:top}}
-th{{background:#f2f0ea;font-size:.8rem;text-transform:uppercase;letter-spacing:.03em}}
-small{{color:#666}} q{{color:#555;font-style:italic}}
-.chip{{display:inline-block;border-radius:10px;padding:0 .5rem;margin:0 .2rem .2rem 0;font-size:.75rem;font-weight:600}}
-.summary{{background:#fff;border:1px solid #e3e1da;border-radius:8px;padding:.6rem 1.2rem;margin-bottom:1.5rem;max-width:70rem}}
-.summary h2{{font-size:1.05rem;margin:.3rem 0}} .summary ul{{margin:.2rem 0;padding-left:1.1rem}} .summary li{{margin:.25rem 0}}
-.summary .urgent{{font-weight:600;color:#a11}} .summary .alert{{background:#a11;color:#fff;font-weight:700;font-size:1.05rem;padding:.4rem .6rem;border-radius:6px;list-style:none;margin-left:-1.1rem}}
-.reply{{white-space:pre-wrap;max-width:28rem;font-size:.85rem;color:#333}}
-.chip.failed,.chip.urgent,.chip.scam{{background:#fde2e1;color:#a11}} .chip.answer{{background:#ffe3cc;color:#8a3b00}} .chip.suspicious{{background:#fff0c2;color:#7a5200}} .chip.needs{{background:#e6ecff;color:#1d3d9a}} .chip.draft{{background:#dff5e3;color:#17652a}}
-</style></head><body>
-<h1>Lumenfold support inbox: triage run {h(report.run_id)}</h1>
-<div class="sub">Model {h(report.model)} · started {h(report.started_at.isoformat(timespec="seconds"))} · drafts only, nothing was sent</div>
-<section class="summary"><h2>Morning summary</h2><ul>{summary}</ul></section>
-<div class="tiles">{tiles}</div>
-<table><thead><tr><th>Email</th><th>From / subject</th><th>Category</th><th>Conf.</th><th>Labels</th><th>Flags</th><th>Reason / evidence</th><th>Note</th><th>Draft</th></tr></thead>
-<tbody>{"".join(rows)}</tbody></table>
-<p class="sub">Skipped (already triaged): {h(", ".join(report.skipped_ids) or "none")}<br>Could not be read (retried next run): {h(", ".join(report.unreadable_ids) or "none")}</p>
+:root{{--paper:#faf7f1;--ink:#26231f;--soft:#6e685e;--line:#e7e1d5;--amber:#b06f12;--amber-bar:#d89a33;--red:#a5402f;--white:#fffdf9;
+--serif:"New York","Iowan Old Style","Palatino Linotype",Georgia,serif;--sans:-apple-system,"SF Pro Text",Inter,"Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}}
+*{{box-sizing:border-box}}
+body{{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 var(--sans);-webkit-text-size-adjust:100%}}
+main{{max-width:760px;margin:0 auto;padding:4.5rem 1.5rem 5rem}}
+h1,h2,h3{{font-family:var(--serif);font-weight:500;letter-spacing:-.01em;margin:0}}
+h1{{font-size:2.5rem;line-height:1.12}}
+h2{{font-size:1.45rem;margin-bottom:.4rem}} h2 span,h3 span,summary span{{color:var(--soft);font-family:var(--sans);font-size:.9rem;font-weight:400;margin-left:.35rem}}
+h3{{font-size:1.1rem;margin:1.8rem 0 .4rem}}
+.lede{{font-size:1.2rem;color:var(--soft);margin:.9rem 0 2rem}}
+.numbers{{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:1rem 0}}
+.numbers b{{display:block;font:500 1.7rem/1.1 var(--serif)}} .numbers span{{color:var(--soft);font-size:.85rem}}
+section,#rest{{margin-top:3.5rem}}
+p{{margin:0}} .quiet{{color:var(--soft);font-size:.92rem}}
+.who b{{font-weight:600}} .who span{{display:block}}
+.card{{border-left:3px solid var(--amber-bar);padding:.2rem 0 .2rem 1.1rem;margin:1.3rem 0}}
+.card.urgent{{border-left-color:var(--red)}}
+.why{{margin-top:.25rem}} .card.urgent .why{{color:var(--red)}}
+.cap{{display:inline-block}} .cap::first-letter{{text-transform:uppercase}}
+.also,.due{{color:var(--soft);font-size:.92rem}} .due{{font-variant-numeric:tabular-nums}}
+#scams{{border:1px solid #e3c9bd;background:#fbf1ec;border-radius:6px;padding:1.4rem 1.5rem}}
+.warn{{color:var(--red);font-weight:600;margin-bottom:.6rem}}
+.bad{{margin-top:.2rem}} code{{font-family:var(--mono);font-size:.88em;background:var(--white);border:1px solid var(--line);border-radius:3px;padding:.05rem .35rem;user-select:all}}
+ul.plain{{list-style:none;margin:0;padding:0}} ul.plain>li{{padding:.75rem 0;border-top:1px solid var(--line)}} ul.plain>li:first-child{{border-top:0}}
+#scams ul.plain>li{{border-color:#ecd8ce}} #scams .quiet{{margin-top:.6rem}}
+.draft-card{{padding:.8rem 0 .7rem;border-top:1px solid var(--line)}}
+.draft-card .who{{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}} .draft-card .who span{{display:inline;margin-left:.5rem}}
+.draft-card .gist{{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}} #drafts .quiet+.draft-card{{margin-top:.6rem}}
+.gist{{color:var(--soft);margin-top:.15rem}}
+.toggles{{display:flex;flex-wrap:wrap;gap:.2rem 1.4rem;margin-top:.25rem}} .toggles details[open]{{flex-basis:100%}}
+summary{{cursor:pointer;color:var(--amber);font-size:.92rem;list-style:none}} summary::-webkit-details-marker{{display:none}}
+summary::before{{content:"▸";display:inline-block;width:1em}} details[open]>summary::before{{content:"▾"}}
+summary:focus-visible,button:focus-visible{{outline:2px solid var(--amber);outline-offset:2px;border-radius:2px}}
+pre{{font:15px/1.6 var(--sans);white-space:pre-wrap;overflow-wrap:anywhere;max-width:65ch;background:var(--white);border:1px solid var(--line);border-radius:6px;padding:1rem 1.2rem;margin:.6rem 0 .5rem}}
+button.copy{{font:inherit;font-size:.88rem;color:var(--amber);background:none;border:1px solid var(--amber-bar);border-radius:999px;padding:.2rem .9rem;cursor:pointer}}
+button.copy:hover{{background:var(--white)}}
+details.why p{{color:var(--soft);font-size:.92rem;margin:.3rem 0 0 1em}} q{{font-style:italic}}
+.scroll{{overflow-x:auto}} table{{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}}
+th{{text-align:left;font-weight:500;color:var(--soft);font-size:.85rem;padding:.4rem .8rem .4rem 0;border-bottom:1px solid var(--line)}}
+td{{padding:.6rem .8rem .6rem 0;border-bottom:1px solid var(--line);vertical-align:top}} td+td{{white-space:nowrap}} .num{{text-align:right;white-space:nowrap}}
+#invoices .quiet{{margin-top:.6rem}}
+.tag{{font-size:.8rem;color:var(--soft);border:1px solid var(--line);border-radius:999px;padding:0 .5rem;white-space:nowrap}} .tag.overdue{{color:var(--red);border-color:#e3c9bd}}
+.dates li{{display:grid;grid-template-columns:7.5rem 1fr;gap:1rem}} .date{{font-family:var(--serif)}}
+#rest{{border-top:1px solid var(--line);padding-top:1.2rem}}
+#rest>summary{{font-family:var(--serif);font-size:1.2rem;color:var(--ink)}}
+.small{{font-size:.88rem}} .mono li{{color:var(--soft)}} .mono code{{background:none;border:0;padding:0;color:var(--ink)}}
+footer{{margin-top:3rem;color:var(--soft);font-size:.85rem}}
+@media (max-width:560px){{main{{padding:2.5rem 1.1rem 3rem}} h1{{font-size:1.95rem}} .when{{display:block;font-size:1.1rem;color:var(--soft);margin-bottom:.2rem}} .lede{{font-size:1.05rem}}
+.numbers{{grid-template-columns:repeat(2,1fr);row-gap:.9rem}} .dates li{{grid-template-columns:1fr;gap:.1rem}} #scams{{padding:1.1rem}}}}
+</style></head><body><main>
+<h1><span class="when">{h(when)} —</span> {title}</h1>
+<p class="lede">{lede}.</p>
+<div class="numbers">{numbers}</div>
+<section id="needs-you"><h2>Needs you today</h2>{needs_html}</section>
+{scam_html}
+{drafts_html}
+{invoices_html}
+{dated_html}
+{rest_html}
+<footer>Drafts only — nothing was sent.</footer>
+</main>
+<script>
+document.querySelectorAll("button.copy").forEach(function (b) {{
+  b.addEventListener("click", function () {{
+    var text = b.previousElementSibling;
+    function pick() {{ getSelection().selectAllChildren(text); b.textContent = "Selected — press Copy"; }}
+    if (!navigator.clipboard) {{ pick(); return; }}
+    navigator.clipboard.writeText(text.textContent).then(function () {{
+      b.textContent = "Copied";
+      setTimeout(function () {{ b.textContent = "Copy"; }}, 1600);
+    }}, pick);
+  }});
+}});
+</script>
 </body></html>
 """
     (out_dir / "report.html").write_text(page)

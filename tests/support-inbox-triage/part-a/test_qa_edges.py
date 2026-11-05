@@ -238,7 +238,9 @@ def test_empty_inbox_writes_reports(tmp_path: Path) -> None:
     assert report.outcomes == []
     parsed_back = RunReport.model_validate_json((tmp_path / "report.json").read_text())
     assert parsed_back.counts.total == 0
-    assert "<table>" in (tmp_path / "report.html").read_text()
+    page = (tmp_path / "report.html").read_text()
+    assert "—</span> nothing needs you</h1>" in page and "<table" not in page
+    assert "0 drafts ready." in page
     client.beta.messages.parse.assert_not_called()
 
 
@@ -946,7 +948,7 @@ def test_html_escapes_sender_subject_note_and_error(tmp_path: Path) -> None:
     client = simple_client(cls(injection=True, injection_reason="<b>bold</b> & more"))
     pipeline(emails, client, tmp_path)
     page = (tmp_path / "report.html").read_text()
-    assert "<script>" not in page
+    assert page.count("<script") == 1 and "<script>alert" not in page
     assert "<img src=x" not in page
     assert "<b>bold</b>" not in page
     assert "&lt;b&gt;bold&lt;/b&gt; &amp; more" in page
