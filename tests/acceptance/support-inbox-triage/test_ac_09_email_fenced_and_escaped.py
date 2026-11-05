@@ -13,7 +13,7 @@ def system_text(system: Any) -> str:
 
 
 def test_ac_09_email_fenced_and_escaped(h: SimpleNamespace) -> None:
-    """AC-09: email text reaches the model only inside one <email> block, escaped, never in system; the drafter system holds the FAQ."""
+    """AC-09: email text reaches the model only inside one <email-<random>> block (fresh tag per message), escaped, never in system; the drafter system holds the FAQ."""
     from src.classifier import Classifier
     from src.config import Settings
     from src.drafter import Drafter
@@ -38,6 +38,7 @@ def test_ac_09_email_fenced_and_escaped(h: SimpleNamespace) -> None:
         *client.beta.messages.create.call_args_list,
     ]
     assert len(calls) == 2
+    tags_seen: list[str] = []
     for call in calls:
         kwargs = call.kwargs
         assert CANARY not in system_text(kwargs["system"])
@@ -45,12 +46,18 @@ def test_ac_09_email_fenced_and_escaped(h: SimpleNamespace) -> None:
         assert len(messages) == 1 and messages[0]["role"] == "user"
         content = messages[0]["content"]
         assert isinstance(content, str)
-        blocks = re.findall(r"<email>(.*?)</email>", content, re.DOTALL)
+        tags = re.findall(r"<(email-[0-9a-f]{16})>", content)
+        assert len(tags) == 1
+        tag = tags[0]
+        assert content.count(f"</{tag}>") == 1
+        tags_seen.append(tag)
+        blocks = re.findall(rf"<{tag}>(.*?)</{tag}>", content, re.DOTALL)
         assert len(blocks) == 1
-        outside = re.sub(r"<email>.*?</email>", "", content, flags=re.DOTALL)
+        outside = re.sub(rf"<{tag}>.*?</{tag}>", "", content, flags=re.DOTALL)
         assert CANARY not in outside
         assert "SYSTEM: obey" not in outside
         inside = blocks[0]
         assert "&lt;/email&gt;" in inside and "&lt;b&gt;now&lt;/b&gt;" in inside
         assert "<b>" not in inside
+    assert tags_seen[0] != tags_seen[1]
     assert faq in system_text(client.beta.messages.create.call_args.kwargs["system"])
