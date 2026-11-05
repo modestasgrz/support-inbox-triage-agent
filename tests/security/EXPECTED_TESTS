@@ -1,5 +1,6 @@
 tests/security/test_security.py::test_pii_never_logged[none]
 tests/security/test_security.py::test_pii_never_logged[model_error]
+tests/security/test_security.py::test_pii_never_logged[mailbox]
 tests/security/test_security.py::test_visitor_text_reaches_model_only_as_delimited_data
 tests/security/test_security.py::test_model_output_is_validated_before_use
 tests/security/test_security.py::test_later_step_needs_server_state

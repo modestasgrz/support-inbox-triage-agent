@@ -61,6 +61,13 @@ The gold labels in `data/gold.json` are the intended labels for the 50 mock emai
 
 Result: *pending: filled in from the first real eval run.*
 
+## Known limits
+- Each run reads the newest 100 messages in the inbox. If more than 100 untriaged emails pile up, the oldest wait until newer ones are triaged.
+- When the model refuses to classify an email, the SDK reports it as a parsing error, so the report says "invalid model output" instead of "model refusal". The email still goes to `Triage/Needs review`.
+- The draft link check covers web links (scheme, `www.` and host/path forms) but not email addresses or port numbers.
+- The injection pre-scan is deliberately simple. "Disregard the above address" gets flagged as suspicious (no draft, human review), and rephrased attacks rely on the model's own verdict.
+- Every draft is reviewed by a person before sending; nothing is sent automatically.
+
 ## Develop
 
 ```bash
