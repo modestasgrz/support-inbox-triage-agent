@@ -238,10 +238,16 @@ def run_triage(
                 fields,
             )
         except Exception as e:
-            fields.update(
-                status="failed",
-                error_type=type(e).__name__,
-            )
+            fields.update(status="failed", error_type=type(e).__name__)
+            if not fields["labels"]:
+                # Nothing reached Gmail, so the row shows no flag that Gmail doesn't have.
+                fields.update(
+                    answer_by_hand=False,
+                    urgent_reason=None,
+                    overdue=False,
+                    scam_warning=False,
+                    scam_domains=[],
+                )
             logger.warning("Email {} failed: {}", email.id, type(e).__name__)
         else:
             logger.info("Email {} labelled {}", email.id, fields["labels"])
@@ -389,16 +395,17 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
     def md(value: object) -> str:
         # Defanged so no Markdown viewer turns a URL, [text](link) or email address from an email or the model into a link.
         text = html.escape(str(value if value is not None else ""), quote=False)
-        return re.sub(
+        text = re.sub(
             r"(?i)\bwww\.",
             "www[.]",
             text.replace("://", "[:]//")
-            .replace("](", "]\\(")
             .replace("@", "[@]")
             .replace("|", "\\|")
             .replace("\r", " ")
             .replace("\n", " "),
         )
+        # Last, so the "[" added by the defangs above can't open a link either.
+        return text.replace("](", "]\\(")
 
     lines = [
         f"# Triage run {report.run_id}",

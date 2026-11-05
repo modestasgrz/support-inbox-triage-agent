@@ -112,6 +112,8 @@ Offline eval after round 2 (morning summary, urgency flags, scam warning), 2026-
 - "Overdue" uses the run date in UTC, so an invoice due today is not overdue yet.
 - The scam warning reads scheme, `www.` and host/path links, not protocol-relative `//host` ones.
 - If Gmail fails while creating the draft of an urgent email, Gmail keeps the `Triage/Urgent` label but the summary only counts it as failed.
+- A suspicious `other` email with a date is still listed under "Has a date" (it stays unread either way).
+- An email that failed before any label reached Gmail shows only FAILED in the report; its urgent/scam/answer-by-hand flags come back on the retry next run.
 - The scam warning covers suspicious emails only. A plain phishing email (sorted as spam and marked read) gets no warning, and a non-suspicious email's outside links are handled by the draft link check instead.
 - "Has a date" relies on the model's reading of the email. A courier pickup notice counts as a date to prepare for, so it stays unread too.
 - Every draft is reviewed by a person before sending; nothing is sent automatically.

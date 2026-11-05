@@ -1024,3 +1024,39 @@ def test_full_dataset_with_gold_model(tmp_path: Path) -> None:
     assert (
         RunReport.model_validate_json((tmp_path / "report.json").read_text()) == report
     )
+
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "Claim here @(//refunds-portal.example/claim)",
+        "Claim here www.(//refunds-portal.example/claim)",
+    ],
+)
+def test_md_defang_brackets_never_open_a_link(tmp_path: Path, subject: str) -> None:
+    one(mail(0, subject=subject), cls("support"), tmp_path)
+    md = (tmp_path / "report.md").read_text()
+    assert "](" not in md
+    assert "]\\(//refunds-portal" in md
+
+
+def test_failed_before_labels_shows_no_flags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    email = mail(0, body="Claim at http://refunds-portal.example/x")
+    box = FakeMailbox([email])
+
+    def fail(email_id: str, names: list[str]) -> None:
+        raise RuntimeError("gmail down")
+
+    monkeypatch.setattr(box, "add_labels", fail)
+    client = make_client(
+        {email.subject: parsed(cls("support", injection=True, escalation=True))}
+    )
+    _, report = go([email], client, tmp_path, mailbox=box)
+    o = report.outcomes[0]
+    assert o.status == "failed" and o.labels == []
+    assert not o.answer_by_hand and not o.scam_warning and o.urgent_reason is None
+    page = (tmp_path / "report.html").read_text()
+    for chip in ("URGENT", "SCAM", "ANSWER BY HAND"):
+        assert f">{chip}<" not in page
