@@ -79,3 +79,5 @@ class RunReport(BaseModel):
     model: str
     outcomes: list[Outcome]
     counts: Counts
+    skipped_ids: list[str] = []
+    unreadable_ids: list[str] = []

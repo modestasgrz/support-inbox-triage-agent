@@ -17,7 +17,8 @@ Each morning someone reads the shared inbox, sorts it, answers the routine quest
 | confidence < 0.70, or a draft that failed the checks | category + `Triage/Needs review` | stays unread | no |
 | model refusal or invalid model output | `Triage/Needs review` only | stays unread | no |
 | prompt injection suspected | category + `Triage/Suspicious` | stays unread | no |
-| API or Gmail error | none (retried next run) | stays unread | no |
+| model API error, or Gmail error before labelling | none (retried next run) | stays unread | no |
+| Gmail error while creating the draft | category + `Triage/Draft ready` + `Triage/Needs review`, marked failed in the report | stays unread | no |
 
 Every outcome in the run report carries: category, confidence, one-line reason, an exact quote from the email, and why it was flagged.
 
@@ -30,7 +31,7 @@ Every outcome in the run report carries: category, confidence, one-line reason, 
   - Code, not the model, picks every Gmail action from a closed set of labels.
   - A code-side pattern scan plus the model's own verdict decide "suspicious". Either one blocks the draft.
   - A draft may only contain links that appear in the FAQ or the customer's email.
-- **Failure isolation.** One bad email never stops the batch. Anthropic calls use `max_retries=3` and a 60 s timeout; Gmail calls use `num_retries=3`. Failed emails stay untouched and are retried on the next run. Already-triaged emails are skipped.
+- **Failure isolation.** One bad email never stops the batch. Anthropic calls use `max_retries=3` and a 60 s timeout; Gmail calls use `num_retries=3`. An email that failed before it was labelled stays untouched and is retried on the next run. Labels go on before the draft is created, so a rerun can never draft the same email twice. Already-triaged emails are skipped and listed in the report, and so are messages Gmail couldn't return.
 - **Logs** hold only ids, labels, counts and error class names. They never hold bodies, senders, subjects or provider error text.
 
 ## Run it

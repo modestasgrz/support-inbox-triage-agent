@@ -3,13 +3,14 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import anthropic
 from loguru import logger
 
 from src.classifier import Classifier, scan_injection
 from src.config import Settings
-from src.drafter import Drafter
+from src.drafter import Drafter, DraftStopped
 from src.mailbox import Mailbox
 from src.models import Category, Counts, Email, Outcome, RunReport
 
@@ -20,18 +21,31 @@ SUSPICIOUS = "Triage/Suspicious"
 MAX_DRAFT_CHARS = 2000
 
 
-# Links a draft may contain: scheme URLs, www. hosts and bare domains (Gmail turns all of them into links).
-LINK = re.compile(
-    r"(?<![@\w.-])(?:https?://|www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:/[^\s<>\"'()\[\]]*)?",
+# Links a draft may contain. Any scheme URL is taken whole and compared by its real host (userinfo, IPs and
+# non-ASCII hosts included); scheme-less text counts only as www.… or host/path, the forms Gmail turns into links.
+SCHEME_URL = re.compile(r"[a-z][a-z0-9+.-]*://[^\s<>\"'()\[\]]+", re.IGNORECASE)
+BARE_URL = re.compile(
+    r"(?<![@\w./:-])(?:www\.[^\s<>\"'()\[\]]+|(?:[\w-]+\.)+[^\W\d_]{2,}/[^\s<>\"'()\[\]]*)",
     re.IGNORECASE,
 )
 
 
 def links(text: str) -> set[str]:
-    return {
-        re.sub(r"^(?:https?://)?(?:www\.)?", "", link.lower()).rstrip(".,;:!?/")
-        for link in LINK.findall(text)
-    }
+    tokens = [
+        *SCHEME_URL.findall(text),
+        *("//" + t for t in BARE_URL.findall(SCHEME_URL.sub(" ", text))),
+    ]
+    found = set()
+    for token in tokens:
+        parts = urlsplit(token.rstrip(".,;:!?"))
+        host = (parts.hostname or "").removeprefix("www.")
+        path = (
+            parts.path.rstrip("/")
+            + (f"?{parts.query}" if parts.query else "")
+            + (f"#{parts.fragment}" if parts.fragment else "")
+        )
+        found.add(f"{host}{path}")
+    return found
 
 
 def check_draft(text: str, email: Email, faq: str) -> str | None:
@@ -55,6 +69,7 @@ def triage_one(
 ) -> None:
     result, failure, fields["truncated"] = classifier.classify(email)
     draft_text = None
+    mark_read = False
     if result is None:
         labels = [NEEDS_REVIEW]
         fields.update(needs_review=True, reason=failure)
@@ -84,27 +99,31 @@ def triage_one(
                 rejected = check_draft(draft_text, email, faq)
             except anthropic.APIError as e:
                 rejected = f"draft failed: {type(e).__name__}"
+            except DraftStopped as e:
+                rejected = f"draft stopped: {e.stop_reason}"
             if rejected:
                 draft_text = None
                 labels.append(NEEDS_REVIEW)
                 fields.update(needs_review=True, draft_rejected=rejected)
             else:
                 labels.append(DRAFT_READY)
+        elif result.category in (Category.SPAM, Category.OTHER):
+            mark_read = True
     # Labels go on before the draft: a labelled email is skipped next run, so a later failure can never double-draft.
     mailbox.add_labels(email.id, labels)
     fields["labels"] = labels
     if draft_text is not None:
         try:
             fields["draft_id"] = mailbox.create_draft(email, draft_text)
-        except Exception:
+        except Exception as e:
+            # Draft ready stays on the email next to Needs review; the report marks it failed.
+            fields.update(
+                needs_review=True, draft_rejected=f"draft failed: {type(e).__name__}"
+            )
             mailbox.add_labels(email.id, [NEEDS_REVIEW])
             fields["labels"] = [*labels, NEEDS_REVIEW]
             raise
-    elif (
-        result is not None
-        and result.category in (Category.SPAM, Category.OTHER)
-        and len(labels) == 1
-    ):
+    if mark_read:
         mailbox.mark_read(email.id)
         fields["marked_read"] = True
 
@@ -171,6 +190,8 @@ def run_triage(
         model=settings.model,
         outcomes=outcomes,
         counts=counts,
+        skipped_ids=[e.id for e in emails if e not in todo],
+        unreadable_ids=mailbox.unreadable,
     )
     write_reports(report, {e.id: e for e in todo}, out_dir)
     logger.info("Run {}: {}", report.run_id, counts.model_dump())
@@ -196,8 +217,9 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
 
     def md(value: object) -> str:
         return (
-            str(value if value is not None else "")
+            html.escape(str(value if value is not None else ""))
             .replace("|", "\\|")
+            .replace("\r", " ")
             .replace("\n", " ")
         )
 
@@ -209,6 +231,10 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
         "| "
         + " | ".join(f"{k}: {v}" for k, v in report.counts.model_dump().items())
         + " |",
+        "",
+        f"Skipped (already triaged): {', '.join(report.skipped_ids) or 'none'}",
+        "",
+        f"Could not be read (retried next run): {', '.join(report.unreadable_ids) or 'none'}",
         "",
         "| Email | From | Subject | Category | Conf. | Labels | Flags | Reason | Evidence | Note |",
         "|---|---|---|---|---|---|---|---|---|---|",
@@ -277,6 +303,7 @@ small{{color:#666}} q{{color:#555;font-style:italic}}
 <div class="tiles">{tiles}</div>
 <table><thead><tr><th>Email</th><th>From / subject</th><th>Category</th><th>Conf.</th><th>Labels</th><th>Flags</th><th>Reason / evidence</th><th>Note</th></tr></thead>
 <tbody>{"".join(rows)}</tbody></table>
+<p class="sub">Skipped (already triaged): {h(", ".join(report.skipped_ids) or "none")}<br>Could not be read (retried next run): {h(", ".join(report.unreadable_ids) or "none")}</p>
 </body></html>
 """
     (out_dir / "report.html").write_text(page)

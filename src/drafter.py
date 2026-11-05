@@ -19,6 +19,12 @@ FAQ:
 {faq}"""
 
 
+class DraftStopped(Exception):
+    def __init__(self, stop_reason: str | None) -> None:
+        super().__init__(stop_reason)
+        self.stop_reason = stop_reason
+
+
 class Drafter:
     def __init__(
         self, client: anthropic.Anthropic, settings: Settings, faq: str
@@ -43,7 +49,7 @@ class Drafter:
             fallbacks="default",
         )
         if response.stop_reason != "end_turn":
-            return ""
+            raise DraftStopped(response.stop_reason)
         return "".join(
             block.text for block in response.content if block.type == "text"
         ).strip()

@@ -10,6 +10,8 @@ def reply_subject(subject: str) -> str:
 
 
 class Mailbox(Protocol):
+    unreadable: list[str]
+
     def fetch_inbox(self) -> list[Email]: ...
 
     def add_labels(self, email_id: str, names: list[str]) -> None: ...
@@ -25,6 +27,7 @@ class FakeMailbox:
         self.labels: dict[str, list[str]] = {}
         self.read: set[str] = set()
         self.drafts: list[Draft] = []
+        self.unreadable: list[str] = []
 
     @classmethod
     def from_json(cls, path: Path) -> "FakeMailbox":

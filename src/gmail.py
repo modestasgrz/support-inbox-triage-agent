@@ -63,6 +63,7 @@ class GmailMailbox:
     def __init__(self, service: Any) -> None:
         self._users = service.users()
         self._label_ids: dict[str, str] = {}
+        self.unreadable: list[str] = []
 
     def _labels(self) -> dict[str, str]:
         if not self._label_ids:
@@ -80,6 +81,7 @@ class GmailMailbox:
         )
         names = {label_id: name for name, label_id in self._labels().items()}
         emails = []
+        self.unreadable = []
         for ref in result.get("messages", []):
             try:
                 msg = (
@@ -91,11 +93,6 @@ class GmailMailbox:
                     h["name"].lower(): h["value"]
                     for h in msg["payload"].get("headers", [])
                 }
-                received = (
-                    datetime.fromtimestamp(int(msg["internalDate"]) / 1000, tz=UTC)
-                    if "internalDate" in msg
-                    else datetime.now(UTC)
-                )
                 emails.append(
                     Email(
                         id=msg["id"],
@@ -104,7 +101,9 @@ class GmailMailbox:
                         sender=headers.get("from", ""),
                         subject=headers.get("subject") or "(no subject)",
                         body=_body(msg["payload"]),
-                        received_at=received,
+                        received_at=datetime.fromtimestamp(
+                            int(msg["internalDate"]) / 1000, tz=UTC
+                        ),
                         label_names=[
                             names.get(label_id, label_id)
                             for label_id in msg.get("labelIds", [])
@@ -112,9 +111,8 @@ class GmailMailbox:
                     )
                 )
             except Exception as e:
-                logger.warning(
-                    "Skipped message {}: {}", ref.get("id"), type(e).__name__
-                )
+                self.unreadable.append(ref["id"])
+                logger.warning("Skipped message {}: {}", ref["id"], type(e).__name__)
         logger.info("Fetched {} inbox emails", len(emails))
         return emails
 
@@ -176,6 +174,7 @@ def build_service(settings: Settings) -> Any:
                 str(settings.gmail_client_secret_path), SCOPES
             ).run_local_server(port=0)
         settings.gmail_token_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        settings.gmail_token_path.parent.chmod(0o700)
         with os.fdopen(
             os.open(
                 settings.gmail_token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
