@@ -15,6 +15,7 @@ def test_ac_30_scam_warning(h: SimpleNamespace, tmp_path: Path) -> None:
         h.email(2, subject="Two", body="Then please reply with your bank details."),
         h.email(3, subject="Three", body="See https://lumenfold.example/returns"),
         h.email(4, subject="Four", body="Like this? https://other-shop.example/item"),
+        h.email(5, subject="Five", body="Track at https://lumenfold.example?utm=1"),
     ]
     client = h.client(
         {
@@ -22,6 +23,7 @@ def test_ac_30_scam_warning(h: SimpleNamespace, tmp_path: Path) -> None:
             "Two": h.parsed(h.cls("support", 0.9, injection=True)),
             "Three": h.parsed(h.cls("support", 0.9, injection=True)),
             "Four": h.parsed(h.cls("support", 0.9)),
+            "Five": h.parsed(h.cls("support", 0.9, injection=True)),
         },
         {"Four": h.message("We have no such item.")},
     )
@@ -32,6 +34,7 @@ def test_ac_30_scam_warning(h: SimpleNamespace, tmp_path: Path) -> None:
     assert two.scam_warning is True and two.scam_domains == []
     assert three.scam_warning is False
     assert four.scam_warning is False and four.scam_domains == []
+    assert h.outcome(report, "m5").scam_warning is False
 
     scam = next(line for line in report.summary if line.kind == "scam")
     assert "m1" in scam.text and "m2" in scam.text
