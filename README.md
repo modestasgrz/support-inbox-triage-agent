@@ -24,7 +24,7 @@ Each morning someone reads the shared inbox, sorts it, answers the routine quest
 
 On top of that, `Triage/Urgent` is added when:
 - a customer threatens a chargeback, a bank dispute, legal action or a bad public review (the model returns a yes/no plus the exact quote; the code adds the label), or
-- an invoice is overdue (the model reads the due date; the code compares it with the run date).
+- an invoice is overdue (the model reads the due date; the code compares it with the run date). A suspicious invoice is never marked urgent, so planted text can't push a fake bill to the top.
 
 Every outcome in the run report carries: category, confidence, one-line reason, an exact quote from the email, why it was flagged, and the full draft text when a draft was made.
 
@@ -53,7 +53,7 @@ The scam warning is decided in code: a suspicious email whose links point to hos
   - A code-side pattern scan plus the model's own verdict decide "suspicious". Either one blocks the draft.
   - A draft may only contain links that appear in the FAQ or the customer's email.
   - The urgency and date fields from the model can only add a label, keep an email unread or fill the report. They can never create a draft or mark a suspicious email read.
-  - The reports contain no clickable links: the HTML has no `<a>` tags and the Markdown defangs `://` and `www.`.
+  - The reports contain no clickable links: the HTML has no `<a>` tags, and the Markdown defangs `://`, `www.`, `@` and `](` so no viewer turns a URL, an email address or `[text](link)` into a link.
 - **Failure isolation.** One bad email never stops the batch. Anthropic calls use `max_retries=3` and a 60 s timeout; Gmail calls use `num_retries=3`. An email that failed before it was labelled stays untouched and is retried on the next run. Labels go on before the draft is created, so a rerun can never draft the same email twice. Already-triaged emails are skipped and listed in the report, and so are messages Gmail couldn't return.
 - **Logs** hold only ids, labels, counts and error class names. They never hold bodies, senders, subjects or provider error text.
 
@@ -110,6 +110,8 @@ Offline eval after round 2 (morning summary, urgency flags, scam warning), 2026-
 - The draft link check covers web links (scheme, `www.` and host/path forms) but not email addresses or port numbers.
 - The injection pre-scan is deliberately simple. "Disregard the above address" gets flagged as suspicious (no draft, human review), and rephrased attacks rely on the model's own verdict.
 - "Overdue" uses the run date in UTC, so an invoice due today is not overdue yet.
+- The scam warning reads scheme, `www.` and host/path links, not protocol-relative `//host` ones.
+- If Gmail fails while creating the draft of an urgent email, Gmail keeps the `Triage/Urgent` label but the summary only counts it as failed.
 - The scam warning covers suspicious emails only. A plain phishing email (sorted as spam and marked read) gets no warning, and a non-suspicious email's outside links are handled by the draft link check instead.
 - "Has a date" relies on the model's reading of the email. A courier pickup notice counts as a date to prepare for, so it stays unread too.
 - Every draft is reviewed by a person before sending; nothing is sent automatically.

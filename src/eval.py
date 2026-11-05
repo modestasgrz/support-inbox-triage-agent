@@ -45,9 +45,12 @@ def score(gold: list[GoldLabel], outcomes: list[Outcome]) -> EvalScore:
         if o.escalation and not g.escalation:
             flag_errors.append(f"{g.id}: unexpected escalation")
         if g.category == Category.INVOICE:
-            if o.due_date == g.due_date and (
-                None if o.amount_due is None else round(o.amount_due, 2)
-            ) == (None if g.amount_due is None else round(g.amount_due, 2)):
+            same_amount = (
+                o.amount_due == g.amount_due
+                if o.amount_due is None or g.amount_due is None
+                else round(o.amount_due, 2) == round(g.amount_due, 2)
+            )
+            if o.due_date == g.due_date and same_amount:
                 invoices_right += 1
             else:
                 flag_errors.append(f"{g.id}: invoice fields")
