@@ -58,7 +58,7 @@ CORS_PATH = "/triage"
 ALLOWED_ORIGIN = "https://none.example"
 BODY_CAP_PATH = "/triage"
 REQUEST_ID_HEADER = "x-request-id"
-USER_INPUT_TAG = "email"
+USER_INPUT_TAG = r"email-[0-9a-f]{16}"  # regex: a fresh random tag per message
 IMAGE_FILES: list[Path] = []
 
 _STATE: dict[str, Any] = {}

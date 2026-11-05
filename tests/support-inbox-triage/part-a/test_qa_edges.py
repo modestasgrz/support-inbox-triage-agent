@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -117,11 +118,18 @@ def dataset() -> tuple[list[Email], dict[str, GoldLabel]]:
 def gold_client(
     emails: list[Email], gold: dict[str, GoldLabel], flag_injection: bool
 ) -> MagicMock:
-    by_block = {fence(e, Settings().body_max_chars): gold[e.id] for e in emails}
+    def untagged(block: str) -> str:
+        return re.sub(r"email-[0-9a-f]{16}", "email", block)
+
+    by_block = {
+        untagged(fence(e, Settings().body_max_chars)): gold[e.id] for e in emails
+    }
 
     def parse(**kwargs: Any) -> Any:
         content: str = kwargs["messages"][0]["content"]
-        label = by_block[content.removesuffix("\n\nClassify the email above.")]
+        label = by_block[
+            untagged(content.removesuffix("\n\nClassify the email above."))
+        ]
         return parsed(
             cls(
                 label.category,
@@ -413,14 +421,15 @@ def test_truncation_boundary() -> None:
 def test_fence_escapes_ampersand_and_keeps_quotes() -> None:
     block = fence(mail(body='A & B "quoted" <b>'), 100)
     assert 'A &amp; B "quoted" &lt;b&gt;' in block
-    assert block.count("<email>") == 1
-    assert block.count("</email>") == 1
+    tag = block.splitlines()[0][1:-1]
+    assert block.count(f"<{tag}>") == 1
+    assert block.count(f"</{tag}>") == 1
 
 
 def test_fence_unicode_and_empty_body() -> None:
     block = fence(mail(subject="Käsekerze 🕯️ 蜡烛", body=""), 100)
     assert "Subject: Käsekerze 🕯️ 蜡烛" in block
-    assert block.endswith("\n\n\n</email>")
+    assert re.search(r"\n\n\n</email-[0-9a-f]{16}>$", block)
 
 
 def test_classifier_refusal_without_parsed_output_attribute() -> None:
