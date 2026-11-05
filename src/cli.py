@@ -11,7 +11,7 @@ from src.classifier import Classifier
 from src.config import Settings
 from src.drafter import Drafter
 from src.eval import GoldLabel, score
-from src.gmail import GmailMailbox, build_service, seed
+from src.gmail import GmailMailbox, build_service, check_inbox, seed
 from src.mailbox import FakeMailbox, Mailbox
 from src.pipeline import run_triage
 
@@ -49,8 +49,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "seed":
             seed(service, FakeMailbox.from_json(args.data).emails, settings.demo_inbox)
             return 0
-        profile = service.users().getProfile(userId="me").execute(num_retries=3)
-        if profile.get("emailAddress", "").lower() != settings.demo_inbox.lower():
+        try:
+            check_inbox(service, settings.demo_inbox)
+        except ValueError:
             logger.error("Signed-in Gmail account is not TRIAGE_DEMO_INBOX")
             return 2
         mailbox: Mailbox = GmailMailbox(service)

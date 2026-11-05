@@ -1,10 +1,12 @@
 import base64
+import os
 from datetime import UTC, datetime
 from email.message import EmailMessage
 from email.utils import format_datetime
 from html.parser import HTMLParser
 from typing import Any
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -30,12 +32,6 @@ class _TextExtractor(HTMLParser):
         self.chunks.append(data)
 
 
-def _html_to_text(html: str) -> str:
-    parser = _TextExtractor()
-    parser.feed(html)
-    return " ".join(" ".join(parser.chunks).split())
-
-
 def _decode(part: dict[str, Any]) -> str:
     data = part.get("body", {}).get("data", "")
     return (
@@ -57,7 +53,9 @@ def _body(payload: dict[str, Any]) -> str:
     if mime == "text/plain":
         return _decode(payload)
     if mime == "text/html":
-        return _html_to_text(_decode(payload))
+        parser = _TextExtractor()
+        parser.feed(_decode(payload))
+        return " ".join(" ".join(parser.chunks).split())
     return ""
 
 
@@ -83,31 +81,40 @@ class GmailMailbox:
         names = {label_id: name for name, label_id in self._labels().items()}
         emails = []
         for ref in result.get("messages", []):
-            msg = (
-                self._users.messages()
-                .get(userId="me", id=ref["id"], format="full")
-                .execute(num_retries=RETRIES)
-            )
-            headers = {
-                h["name"].lower(): h["value"] for h in msg["payload"].get("headers", [])
-            }
-            emails.append(
-                Email(
-                    id=msg["id"],
-                    thread_id=msg["threadId"],
-                    rfc822_message_id=headers.get("message-id", ""),
-                    sender=headers.get("from", ""),
-                    subject=headers.get("subject") or "(no subject)",
-                    body=_body(msg["payload"]),
-                    received_at=datetime.fromtimestamp(
-                        int(msg["internalDate"]) / 1000, tz=UTC
-                    ),
-                    label_names=[
-                        names.get(label_id, label_id)
-                        for label_id in msg.get("labelIds", [])
-                    ],
+            try:
+                msg = (
+                    self._users.messages()
+                    .get(userId="me", id=ref["id"], format="full")
+                    .execute(num_retries=RETRIES)
                 )
-            )
+                headers = {
+                    h["name"].lower(): h["value"]
+                    for h in msg["payload"].get("headers", [])
+                }
+                received = (
+                    datetime.fromtimestamp(int(msg["internalDate"]) / 1000, tz=UTC)
+                    if "internalDate" in msg
+                    else datetime.now(UTC)
+                )
+                emails.append(
+                    Email(
+                        id=msg["id"],
+                        thread_id=msg["threadId"],
+                        rfc822_message_id=headers.get("message-id", ""),
+                        sender=headers.get("from", ""),
+                        subject=headers.get("subject") or "(no subject)",
+                        body=_body(msg["payload"]),
+                        received_at=received,
+                        label_names=[
+                            names.get(label_id, label_id)
+                            for label_id in msg.get("labelIds", [])
+                        ],
+                    )
+                )
+            except Exception as e:
+                logger.warning(
+                    "Skipped message {}: {}", ref.get("id"), type(e).__name__
+                )
         logger.info("Fetched {} inbox emails", len(emails))
         return emails
 
@@ -157,23 +164,38 @@ def build_service(settings: Settings) -> Any:
     if settings.gmail_token_path.exists():
         creds = load_token(str(settings.gmail_token_path), SCOPES)
     if not creds or not creds.valid:
+        refreshed = False
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+                refreshed = True
+            except RefreshError:
+                logger.warning("Gmail token refresh failed, signing in again")
+        if not refreshed:
             creds = InstalledAppFlow.from_client_secrets_file(
                 str(settings.gmail_client_secret_path), SCOPES
             ).run_local_server(port=0)
-        settings.gmail_token_path.parent.mkdir(parents=True, exist_ok=True)
-        settings.gmail_token_path.write_text(creds.to_json())
+        settings.gmail_token_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with os.fdopen(
+            os.open(
+                settings.gmail_token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
+            ),
+            "w",
+        ) as token:
+            token.write(creds.to_json())
         settings.gmail_token_path.chmod(0o600)
     return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
 
-def seed(service: Any, emails: list[Email], expected_inbox: str) -> int:
-    users = service.users()
-    profile = users.getProfile(userId="me").execute(num_retries=RETRIES)
+def check_inbox(service: Any, expected_inbox: str) -> None:
+    profile = service.users().getProfile(userId="me").execute(num_retries=RETRIES)
     if profile.get("emailAddress", "").lower() != expected_inbox.lower():
         raise ValueError("Signed-in Gmail account is not the expected demo inbox")
+
+
+def seed(service: Any, emails: list[Email], expected_inbox: str) -> int:
+    check_inbox(service, expected_inbox)
+    users = service.users()
     for email in emails:
         message = EmailMessage()
         message["From"] = email.sender

@@ -14,7 +14,8 @@ Each morning someone reads the shared inbox, sorts it, answers the routine quest
 | support / sales, confident | `Triage/Support` or `Triage/Sales` + `Triage/Draft ready` | stays unread | yes, threaded reply draft |
 | invoice | `Triage/Invoice` | stays unread | no |
 | spam / other | `Triage/Spam` / `Triage/Other` | marked read | no |
-| confidence < 0.70, refusal, invalid model output, rejected draft | category + `Triage/Needs review` | stays unread | no |
+| confidence < 0.70, or a draft that failed the checks | category + `Triage/Needs review` | stays unread | no |
+| model refusal or invalid model output | `Triage/Needs review` only | stays unread | no |
 | prompt injection suspected | category + `Triage/Suspicious` | stays unread | no |
 | API or Gmail error | none (retried next run) | stays unread | no |
 

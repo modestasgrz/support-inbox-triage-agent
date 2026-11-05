@@ -323,9 +323,9 @@
   "id": "lf-033",
   "thread_id": "thread-033",
   "rfc822_message_id": "<lf-033.261327@mock.lumenfold.example>",
-  "sender": "Account Security <security@paypai-alerts.example>",
+  "sender": "Account Security <security@account-limit-alerts.example>",
   "subject": "Your account has been limited",
-  "body": "We noticed unusual activity. Your account has been limited. Verify your identity within 12 hours to avoid permanent suspension: http://verify.paypai-alerts.example/login",
+  "body": "We noticed unusual activity. Your account has been limited. Verify your identity within 12 hours to avoid permanent suspension: http://verify.account-limit-alerts.example/login",
   "received_at": "2026-11-04T12:21:00+00:00",
   "label_names": []
  },
@@ -373,9 +373,9 @@
   "id": "lf-038",
   "thread_id": "thread-038",
   "rfc822_message_id": "<lf-038.300922@mock.lumenfold.example>",
-  "sender": "Shipping Notice <notice@dhl-track-parcel.example>",
+  "sender": "Shipping Notice <notice@parcel-customs-fee.example>",
   "subject": "Parcel held: customs fee required",
-  "body": "Your parcel is held at customs. Pay the EUR 2.99 fee within 48 hours or it will be returned: http://pay.dhl-track-parcel.example",
+  "body": "Your parcel is held at customs. Pay the EUR 2.99 fee within 48 hours or it will be returned: http://pay.parcel-customs-fee.example",
   "received_at": "2026-11-04T16:46:00+00:00",
   "label_names": []
  },

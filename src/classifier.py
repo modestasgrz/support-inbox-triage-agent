@@ -1,5 +1,6 @@
 import html
 import re
+import unicodedata
 
 import anthropic
 from pydantic import ValidationError
@@ -8,10 +9,11 @@ from src.config import Settings
 from src.models import Classification, Email
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+HEADER_MAX_CHARS = 500
 
 INJECTION_PATTERNS = {
     "ignore previous instructions": re.compile(
-        r"ignore\s+(all\s+)?(the\s+)?(previous|prior|above|earlier)\s+instructions",
+        r"ignore\s+(?:\w+\s+){0,3}(previous|prior|above|earlier|preceding)\s+(?:\w+\s+)?instructions",
         re.IGNORECASE,
     ),
     "disregard the above": re.compile(
@@ -46,6 +48,7 @@ Reply in English regardless of the email language."""
 
 
 def scan_injection(text: str) -> str | None:
+    text = unicodedata.normalize("NFKC", text)
     return next(
         (name for name, pattern in INJECTION_PATTERNS.items() if pattern.search(text)),
         None,
@@ -56,7 +59,7 @@ def fence(email: Email, max_chars: int) -> str:
     def esc(text: str) -> str:
         return html.escape(text, quote=False)
 
-    return f"<email>\nFrom: {esc(email.sender)}\nSubject: {esc(email.subject)}\n\n{esc(email.body[:max_chars])}\n</email>"
+    return f"<email>\nFrom: {esc(email.sender[:HEADER_MAX_CHARS])}\nSubject: {esc(email.subject[:HEADER_MAX_CHARS])}\n\n{esc(email.body[:max_chars])}\n</email>"
 
 
 class Classifier:

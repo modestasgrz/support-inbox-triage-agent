@@ -42,6 +42,8 @@ class Drafter:
             betas=[FALLBACK_BETA],
             fallbacks="default",
         )
+        if response.stop_reason != "end_turn":
+            return ""
         return "".join(
             block.text for block in response.content if block.type == "text"
         ).strip()

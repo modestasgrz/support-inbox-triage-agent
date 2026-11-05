@@ -18,15 +18,20 @@ DRAFT_READY = "Triage/Draft ready"
 NEEDS_REVIEW = "Triage/Needs review"
 SUSPICIOUS = "Triage/Suspicious"
 MAX_DRAFT_CHARS = 2000
-URL = re.compile(r"https?://[^\s<>\"'()\[\]]+")
 
 
-def category_label(category: Category) -> str:
-    return f"{TRIAGE_PREFIX}{category.value.capitalize()}"
+# Links a draft may contain: scheme URLs, www. hosts and bare domains (Gmail turns all of them into links).
+LINK = re.compile(
+    r"(?<![@\w.-])(?:https?://|www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:/[^\s<>\"'()\[\]]*)?",
+    re.IGNORECASE,
+)
 
 
-def urls(text: str) -> set[str]:
-    return {u.rstrip(".,;:!?") for u in URL.findall(text)}
+def links(text: str) -> set[str]:
+    return {
+        re.sub(r"^(?:https?://)?(?:www\.)?", "", link.lower()).rstrip(".,;:!?/")
+        for link in LINK.findall(text)
+    }
 
 
 def check_draft(text: str, email: Email, faq: str) -> str | None:
@@ -34,7 +39,7 @@ def check_draft(text: str, email: Email, faq: str) -> str | None:
         return "empty draft"
     if len(text) > MAX_DRAFT_CHARS:
         return "too long"
-    if urls(text) - urls(email.body) - urls(faq):
+    if links(text) - links(email.body) - links(faq):
         return "unknown url"
     return None
 
@@ -49,8 +54,7 @@ def triage_one(
     fields: dict[str, Any],
 ) -> None:
     result, failure, fields["truncated"] = classifier.classify(email)
-    labels: list[str] = []
-    mark_read = False
+    draft_text = None
     if result is None:
         labels = [NEEDS_REVIEW]
         fields.update(needs_review=True, reason=failure)
@@ -62,41 +66,45 @@ def triage_one(
             evidence_quote=result.evidence_quote,
         )
         prescan = scan_injection(f"{email.sender}\n{email.subject}\n{email.body}")
-        labels = [category_label(result.category)]
+        labels = [f"{TRIAGE_PREFIX}{result.category.value.capitalize()}"]
         if result.injection_suspected or prescan:
-            reasons = [
-                r
-                for r in (
-                    result.injection_reason if result.injection_suspected else None,
-                    f"pre-scan: {prescan}" if prescan else None,
-                )
-                if r
-            ]
+            reasons = []
+            if result.injection_suspected:
+                reasons.append(result.injection_reason or "model flagged injection")
+            if prescan:
+                reasons.append(f"pre-scan: {prescan}")
             labels.append(SUSPICIOUS)
-            fields.update(
-                suspicious=True,
-                injection_reason="; ".join(reasons) or "model flagged injection",
-            )
+            fields.update(suspicious=True, injection_reason="; ".join(reasons))
         elif result.confidence < settings.confidence_threshold:
             labels.append(NEEDS_REVIEW)
             fields["needs_review"] = True
         elif result.category in (Category.SUPPORT, Category.SALES):
             try:
-                text = drafter.draft(email, result)
-                rejected = check_draft(text, email, faq)
+                draft_text = drafter.draft(email, result)
+                rejected = check_draft(draft_text, email, faq)
             except anthropic.APIError as e:
                 rejected = f"draft failed: {type(e).__name__}"
             if rejected:
+                draft_text = None
                 labels.append(NEEDS_REVIEW)
                 fields.update(needs_review=True, draft_rejected=rejected)
             else:
-                fields["draft_id"] = mailbox.create_draft(email, text)
                 labels.append(DRAFT_READY)
-        elif result.category in (Category.SPAM, Category.OTHER):
-            mark_read = True
+    # Labels go on before the draft: a labelled email is skipped next run, so a later failure can never double-draft.
     mailbox.add_labels(email.id, labels)
     fields["labels"] = labels
-    if mark_read:
+    if draft_text is not None:
+        try:
+            fields["draft_id"] = mailbox.create_draft(email, draft_text)
+        except Exception:
+            mailbox.add_labels(email.id, [NEEDS_REVIEW])
+            fields["labels"] = [*labels, NEEDS_REVIEW]
+            raise
+    elif (
+        result is not None
+        and result.category in (Category.SPAM, Category.OTHER)
+        and len(labels) == 1
+    ):
         mailbox.mark_read(email.id)
         fields["marked_read"] = True
 
@@ -140,8 +148,6 @@ def run_triage(
         except Exception as e:
             fields.update(
                 status="failed",
-                labels=[],
-                marked_read=False,
                 error_type=type(e).__name__,
             )
             logger.warning("Email {} failed: {}", email.id, type(e).__name__)
@@ -152,10 +158,10 @@ def run_triage(
     ok = [o for o in outcomes if o.status == "ok"]
     counts = Counts(
         **{c.value: sum(o.category == c for o in ok) for c in Category},
-        needs_review=sum(o.needs_review for o in outcomes),
-        suspicious=sum(o.suspicious for o in outcomes),
+        needs_review=sum(o.needs_review for o in ok),
+        suspicious=sum(o.suspicious for o in ok),
         failed=len(outcomes) - len(ok),
-        drafts=sum(o.draft_id is not None for o in outcomes),
+        drafts=sum(o.draft_id is not None for o in ok),
         skipped=len(emails) - len(todo),
         total=len(outcomes),
     )

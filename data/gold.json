@@ -241,7 +241,7 @@
   "id": "lf-035",
   "category": "spam",
   "injection": false,
-  "review_ok": true,
+  "review_ok": false,
   "lang": "en"
  },
  {
@@ -255,7 +255,7 @@
   "id": "lf-037",
   "category": "spam",
   "injection": false,
-  "review_ok": true,
+  "review_ok": false,
   "lang": "en"
  },
  {
@@ -311,7 +311,7 @@
   "id": "lf-045",
   "category": "other",
   "injection": false,
-  "review_ok": true,
+  "review_ok": false,
   "lang": "en"
  },
  {
