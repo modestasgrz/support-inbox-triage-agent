@@ -276,7 +276,7 @@ def test_scam_alert_ignores_failed_outcomes(
     _, report = go([email], client, tmp_path, mailbox=box)
     page = (tmp_path / "report.html").read_text()
     assert "Scam warnings: none" in page
-    assert "alert" not in page.split("<table")[0].split("</style>")[1]
+    assert 'id="scams"' not in page
 
 
 # ---------- escalation / urgent ----------
@@ -739,38 +739,38 @@ def test_html_no_anchor_and_escaped_summary(tmp_path: Path) -> None:
     go([email], client, tmp_path)
     page = (tmp_path / "report.html").read_text()
     assert not re.search(r"(?i)<a[\s>]", page)
-    assert "<script>" not in page and "<img" not in page
-    summary = page.split('<section class="summary">')[1].split("</section>")[0]
-    assert html.escape(subject[:60]) in summary
-    assert "&lt;img src=x onerror=1&gt;" in summary
-    assert 'class="scam alert"' in summary
-    assert page.index('<section class="summary">') < page.index("<table")
+    assert page.count("<script") == 1 and "<script>alert" not in page
+    assert "<img" not in page
+    needs = page.split('id="needs-you"')[1].split("</section>")[0]
+    assert (
+        "&lt;a href&#61;&quot;http[:]//evil.example&quot;&gt;click&lt;/a&gt; &amp; co"
+        in needs
+    )
+    assert "&lt;img src&#61;x onerror=1&gt;" in needs
+    scams = page.split('id="scams"')[1].split("</section>")[0]
+    assert "<code>evil[.]example</code>" in scams
+    rest = page.split('<details id="rest">')[1]
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in rest
 
 
 def test_html_summary_scam_alert_only_with_warnings(tmp_path: Path) -> None:
     _, _, _ = one(mail(0), cls("support"), tmp_path)
     page = (tmp_path / "report.html").read_text()
-    assert (
-        'class="scam"' in page
-        and "alert" not in page.split("<table")[0].split("</style>")[1]
-    )
-    for line_kind in (
-        "urgent",
-        "answer_by_hand",
-        "invoices",
-        "dated",
-        "drafts",
-        "rest",
-    ):
-        assert f'<li class="{line_kind}">' in page
+    assert 'id="scams"' not in page
+    assert "Nothing needs you today." in page
+    assert "—</span> nothing needs you</h1>" in page
+    rest = page.split('<details id="rest">')[1]
+    for text in ("Urgent: none", "Scam warnings: none", "Drafts ready to review: 1"):
+        assert text in rest
 
 
 def test_html_draft_cell_and_escaping(tmp_path: Path) -> None:
     draft = "Hi <b>there</b> & welcome\n— Lumenfold Candle Co. support"
     _, _, _ = one(mail(0), cls("support"), tmp_path, draft=draft)
     page = (tmp_path / "report.html").read_text()
-    assert "<div class='reply'>Hi &lt;b&gt;there&lt;/b&gt; &amp; welcome\n" in page
-    assert "<th>Draft</th>" in page
+    assert "<pre>Hi &lt;b&gt;there&lt;/b&gt; &amp; welcome\n" in page
+    assert '<details class="draft"><summary>Show draft</summary><pre>' in page
+    assert "<table" not in page
 
 
 # ---------- eval ----------
