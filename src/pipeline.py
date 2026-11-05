@@ -37,7 +37,13 @@ def links(text: str) -> set[str]:
     ]
     found = set()
     for token in tokens:
-        parts = urlsplit(token.rstrip(".,;:!?"))
+        # Browsers read a backslash as "/" in web URLs; urlsplit would treat it as part of the user info.
+        token = token.rstrip(".,;:!?").replace("\\", "/")
+        try:
+            parts = urlsplit(token)
+        except ValueError:
+            found.add(token.lower())
+            continue
         host = (parts.hostname or "").removeprefix("www.")
         path = (
             parts.path.rstrip("/")

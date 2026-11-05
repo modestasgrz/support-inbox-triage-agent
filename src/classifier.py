@@ -17,7 +17,7 @@ INJECTION_PATTERNS = {
         re.IGNORECASE,
     ),
     "disregard the above": re.compile(
-        r"disregard\s+(?:\w+\s+){0,3}(above|previous|prior|earlier|preceding)",
+        r"disregard\s+the\s+above\b|disregard\s+(?:\w+\s+){0,3}(above|previous|prior|earlier|preceding)\s+(?:\w+\s+)?(instructions|rules|prompts?|directions)",
         re.IGNORECASE,
     ),
     "role override": re.compile(r"\byou\s+are\s+now\b", re.IGNORECASE),
