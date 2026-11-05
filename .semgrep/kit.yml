@@ -1,0 +1,93 @@
+# Kit rules for the classes AI code gets wrong (research C9). Test: `make semgrep-test` (one semgrep --test run per file in .semgrep/fixtures/, paired by name).
+# A reviewed, intended match is silenced by the OWNER with `# nosemgrep: <rule-id>`; agents may not add it (hook + CI).
+rules:
+  - id: kit-no-innerhtml
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Model or visitor text written as HTML is XSS (CWE-79). Use textContent / createElement."
+    patterns:
+      - pattern-either:
+          - pattern: $EL.innerHTML = $VAL
+          - pattern: $EL.outerHTML = $VAL
+          - pattern: $EL.innerHTML += $VAL
+          - pattern: $EL.insertAdjacentHTML(...)
+          - pattern: document.write(...)
+          - pattern: document.writeln(...)
+      - pattern-not: $EL.innerHTML = ""
+      - pattern-not: $EL.innerHTML = ''
+
+  - id: kit-cors-wildcard
+    languages: [python]
+    severity: ERROR
+    message: "CORS allows any origin (CWE-942). Read the exact allowed origins from config."
+    paths:
+      exclude: ["**/tests/**", "**/test_*.py", "**/conftest.py"]
+    pattern-either:
+      - pattern: $APP.add_middleware(CORSMiddleware, ..., allow_origins=["*"], ...)
+      - pattern: CORSMiddleware(..., allow_origins=["*"], ...)
+      - pattern: $APP.add_middleware(CORSMiddleware, ..., allow_origin_regex=".*", ...)
+      - pattern-regex: (?i)["']access-control-allow-origin["']\s*[:,]\s*["']\*["']
+
+  - id: kit-xff-header
+    languages: [python]
+    severity: WARNING
+    message: "X-Forwarded-For is client-controlled (CWE-348). Key rate limits on a server-issued session/token; owner reviews and marks it `# nosemgrep: kit-xff-header`."
+    paths:
+      exclude: ["**/tests/**", "**/test_*.py", "**/conftest.py"]
+    pattern-regex: (?i)["']x-forwarded-for["']
+
+  - id: kit-log-exception-text
+    mode: taint
+    languages: [python]
+    severity: WARNING
+    message: "Exception text can carry provider bodies, prompts or visitor data (CWE-209/532). Log type(err).__name__ and a status code instead."
+    pattern-sources:
+      - patterns:
+          - pattern-inside: |
+              try:
+                ...
+              except $EXC as $ERR:
+                ...
+          - pattern: $ERR
+    pattern-sanitizers:
+      - pattern: type(...)
+      - pattern: $X.status_code
+    pattern-sinks:
+      - pattern: logger.$M(...)
+      - pattern: logging.$M(...)
+      - pattern: print(...)
+      - pattern: $L.bind(...)
+
+  - id: kit-log-sensitive-arg
+    languages: [python]
+    severity: WARNING
+    message: "Logging request data (CWE-532). Log only allowlisted fields - ids, counts, lengths, status codes, request id."
+    patterns:
+      - pattern-either:
+          - pattern: $F(..., $X, ...)
+          - pattern: $F(..., $K=$X, ...)
+          - pattern: $F(..., f"...{$X}...", ...)
+          - pattern: $F(..., $A + $X, ...)
+          - pattern: $F(..., $X + $A, ...)
+          - pattern: $F(..., str($X), ...)
+          - pattern: $F(..., repr($X), ...)
+      - metavariable-regex:
+          metavariable: $F
+          regex: ^(logger\.\w+|logging\.\w+|print|\w+\.bind)$
+      - metavariable-regex:
+          metavariable: $X
+          regex: ^((\w+\.)*(email|e_mail|phone|phone_number|prompt|prompts|body|answers?|row|payload|user_input|visitor_\w+|password|api_key|secret)|request\.(json|body)\(\))$
+
+  - id: kit-modal-unpinned-install
+    languages: [python]
+    severity: ERROR
+    message: "Unpinned image dependency (CWE-1104). Build the image from the lock with .uv_sync(), or pin every package with ==."
+    patterns:
+      - pattern-either:
+          - pattern: $IMG.pip_install(..., "$PKG", ...)
+          - pattern: $IMG.uv_pip_install(..., "$PKG", ...)
+          - pattern: $IMG.pip_install(..., [..., "$PKG", ...], ...)
+          - pattern: $IMG.uv_pip_install(..., [..., "$PKG", ...], ...)
+      - metavariable-regex:
+          metavariable: $PKG
+          regex: ^[^=@]*$

@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+  <body>
+    <div id="out"></div>
+    <script>
+      const out = document.getElementById("out");
+      // ruleid: kit-no-innerhtml-inline
+      out.innerHTML = window.location.hash;
+      // ok: kit-no-innerhtml-inline
+      out.innerHTML = "";
+      // ok: kit-no-innerhtml-inline
+      out.textContent = window.location.hash;
+    </script>
+  </body>
+</html>

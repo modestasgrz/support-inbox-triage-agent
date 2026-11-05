@@ -1,0 +1,10 @@
+tests/security/test_security.py::test_pii_never_logged[none]
+tests/security/test_security.py::test_pii_never_logged[model_error]
+tests/security/test_security.py::test_visitor_text_reaches_model_only_as_delimited_data
+tests/security/test_security.py::test_model_output_is_validated_before_use
+tests/security/test_security.py::test_later_step_needs_server_state
+tests/security/test_security.py::test_spoofed_forwarded_for_shares_one_bucket
+tests/security/test_security.py::test_cors_allows_only_listed_origins
+tests/security/test_security.py::test_provider_error_is_not_leaked
+tests/security/test_security.py::test_oversized_body_is_refused
+tests/security/test_security.py::test_deploy_image_is_built_from_the_lock

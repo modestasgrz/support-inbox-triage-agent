@@ -1,0 +1,16 @@
+# Version-update PRs wait 7 days after a release (cooldown) so a hijacked release is usually pulled first.
+# Security updates ignore the cooldown. Turn on Dependabot alerts + security updates in the repo settings (SECURITY.md).
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

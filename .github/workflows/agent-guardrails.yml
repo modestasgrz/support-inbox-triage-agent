@@ -1,0 +1,165 @@
+name: agent-guardrails
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      feature:
+        description: "Feature slug: run ALL its acceptance tests on main (stage 7b integration)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Take the Makefile, installer and check script from the base branch (a PR can't weaken its own checks)
+        env:
+          BASE: origin/${{ github.base_ref || github.ref_name }}
+        run: |
+          # Base without the security add-on (no installer) = first install: its old Makefile lacks the new targets.
+          if ! git cat-file -e "$BASE:scripts/install_security_tools.sh" 2>/dev/null; then
+            echo "::warning::$BASE has no security add-on yet (first install); using the PR's Makefile, installer and check script"
+            cp Makefile scripts/install_security_tools.sh scripts/agent_guardrails.py "$RUNNER_TEMP/"
+            exit 0
+          fi
+          for f in Makefile scripts/install_security_tools.sh scripts/agent_guardrails.py; do
+            git show "$BASE:$f" > "$RUNNER_TEMP/$(basename "$f")"
+          done
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.0"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: hashFiles('package.json') != ''
+        with:
+          node-version: 22
+      - run: bash "$RUNNER_TEMP/install_security_tools.sh"
+      - run: make -f "$RUNNER_TEMP/Makefile" test-setup
+      - run: make -f "$RUNNER_TEMP/Makefile" check
+      - run: make -f "$RUNNER_TEMP/Makefile" semgrep-test
+
+  secrets-history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: bash scripts/install_security_tools.sh
+      - run: ~/.local/bin/gitleaks git --no-banner --redact .
+
+  main-push-from-pr:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          for _ in 1 2 3; do
+            merged=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.merged_at != null)] | length')
+            [ "$merged" -gt 0 ] && exit 0
+            sleep 10
+          done
+          echo "::error::$SHA reached main without a merged PR (a direct push). Check who pushed it, e.g. a cloud thread, and revert if unexpected."
+          exit 1
+
+  spec-guard:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      feature: ${{ steps.lane.outputs.feature }}
+      part: ${{ steps.lane.outputs.part }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Take the Makefile, installer and check script from the base branch (a PR can't weaken its own checks)
+        env:
+          BASE: origin/${{ github.base_ref || github.ref_name }}
+        run: |
+          # Base without the security add-on (no installer) = first install: its old Makefile lacks the new targets.
+          if ! git cat-file -e "$BASE:scripts/install_security_tools.sh" 2>/dev/null; then
+            echo "::warning::$BASE has no security add-on yet (first install); using the PR's Makefile, installer and check script"
+            cp Makefile scripts/install_security_tools.sh scripts/agent_guardrails.py "$RUNNER_TEMP/"
+            exit 0
+          fi
+          for f in Makefile scripts/install_security_tools.sh scripts/agent_guardrails.py; do
+            git show "$BASE:$f" > "$RUNNER_TEMP/$(basename "$f")"
+          done
+      - run: python3 "$RUNNER_TEMP/agent_guardrails.py" consistency
+      - id: lane
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE: origin/${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: python3 "$RUNNER_TEMP/agent_guardrails.py" pr --title "$PR_TITLE" --base "$BASE" --head "$HEAD_REF"
+
+  acceptance:
+    needs: spec-guard
+    if: needs.spec-guard.outputs.part != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Take the Makefile, installer and check script from the base branch (a PR can't weaken its own checks)
+        env:
+          BASE: origin/${{ github.base_ref || github.ref_name }}
+        run: |
+          # Base without the security add-on (no installer) = first install: its old Makefile lacks the new targets.
+          if ! git cat-file -e "$BASE:scripts/install_security_tools.sh" 2>/dev/null; then
+            echo "::warning::$BASE has no security add-on yet (first install); using the PR's Makefile, installer and check script"
+            cp Makefile scripts/install_security_tools.sh scripts/agent_guardrails.py "$RUNNER_TEMP/"
+            exit 0
+          fi
+          for f in Makefile scripts/install_security_tools.sh scripts/agent_guardrails.py; do
+            git show "$BASE:$f" > "$RUNNER_TEMP/$(basename "$f")"
+          done
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.0"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: hashFiles('package.json') != ''
+        with:
+          node-version: 22
+      - run: make -f "$RUNNER_TEMP/Makefile" test-setup
+      - env:
+          FEATURE: ${{ needs.spec-guard.outputs.feature }}
+          PART: ${{ needs.spec-guard.outputs.part }}
+        run: python3 "$RUNNER_TEMP/agent_guardrails.py" run --feature "$FEATURE" --part "$PART"
+
+  integration:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.0"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: hashFiles('package.json') != ''
+        with:
+          node-version: 22
+      - run: make test-setup
+      - run: python3 scripts/agent_guardrails.py consistency
+      - env:
+          FEATURE: ${{ inputs.feature }}
+        run: python3 scripts/agent_guardrails.py run --feature "$FEATURE"

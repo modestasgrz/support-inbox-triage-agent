@@ -1,0 +1,9 @@
+# Inline <script> in HTML pages. A generic-language rule; kept in its own file because semgrep --test mis-pairs other fixtures when it shares kit.yml.
+rules:
+  - id: kit-no-innerhtml-inline
+    languages: [generic]
+    severity: ERROR
+    message: "Inline <script>: model or visitor text written as HTML is XSS (CWE-79). Use textContent / createElement."
+    paths:
+      include: ["*.html", "*.htm"]
+    pattern-regex: (\.(innerHTML|outerHTML)\s*\+?=(?!\s*["']["']\s*;)|\.insertAdjacentHTML\s*\(|\bdocument\.writeln?\s*\()
