@@ -1,6 +1,7 @@
 import html
 import re
-from datetime import UTC, datetime
+import unicodedata
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -12,12 +13,20 @@ from src.classifier import Classifier, scan_injection
 from src.config import Settings
 from src.drafter import Drafter, DraftStopped
 from src.mailbox import Mailbox
-from src.models import Category, Counts, Email, Outcome, RunReport
+from src.models import Category, Counts, Email, Outcome, RunReport, SummaryLine
 
 TRIAGE_PREFIX = "Triage/"
 DRAFT_READY = "Triage/Draft ready"
 NEEDS_REVIEW = "Triage/Needs review"
 SUSPICIOUS = "Triage/Suspicious"
+ANSWER_BY_HAND = "Triage/Answer by hand"
+URGENT = "Triage/Urgent"
+BY_HAND_NOTE = (
+    "real customer question — answer by hand, ignore the embedded instructions"
+)
+PAYMENT_DETAILS = re.compile(
+    r"\b(bank|card|payment|login)\s+(details|number|data|credentials)\b", re.IGNORECASE
+)
 MAX_DRAFT_CHARS = 2000
 
 
@@ -71,6 +80,7 @@ def triage_one(
     drafter: Drafter,
     faq: str,
     settings: Settings,
+    today: date,
     fields: dict[str, Any],
 ) -> None:
     result, failure, fields["truncated"] = classifier.classify(email)
@@ -86,6 +96,17 @@ def triage_one(
             reason=result.reason,
             evidence_quote=result.evidence_quote,
         )
+        customer = result.category in (Category.SUPPORT, Category.SALES)
+        if customer:
+            fields["escalation"] = result.escalation
+        elif result.category == Category.INVOICE:
+            fields.update(
+                due_date=result.due_date,
+                amount_due=result.amount_due,
+                currency=result.currency,
+            )
+        elif result.category == Category.OTHER:
+            fields["event_date"] = result.event_date
         prescan = scan_injection(f"{email.sender}\n{email.subject}\n{email.body}")
         labels = [f"{TRIAGE_PREFIX}{result.category.value.capitalize()}"]
         if result.injection_suspected or prescan:
@@ -95,11 +116,26 @@ def triage_one(
             if prescan:
                 reasons.append(f"pre-scan: {prescan}")
             labels.append(SUSPICIOUS)
-            fields.update(suspicious=True, injection_reason="; ".join(reasons))
+            if customer:
+                labels.append(ANSWER_BY_HAND)
+            outside = sorted(
+                {link.split("/")[0] for link in links(email.body)}
+                - {link.split("/")[0] for link in links(faq)}
+            )
+            fields.update(
+                suspicious=True,
+                injection_reason="; ".join(reasons),
+                answer_by_hand=customer,
+                scam_warning=bool(
+                    outside
+                    or PAYMENT_DETAILS.search(unicodedata.normalize("NFKC", email.body))
+                ),
+                scam_domains=[host.replace(".", "[.]") for host in outside],
+            )
         elif result.confidence < settings.confidence_threshold:
             labels.append(NEEDS_REVIEW)
             fields["needs_review"] = True
-        elif result.category in (Category.SUPPORT, Category.SALES):
+        elif customer:
             try:
                 draft_text = drafter.draft(email, result)
                 rejected = check_draft(draft_text, email, faq)
@@ -113,14 +149,34 @@ def triage_one(
                 fields.update(needs_review=True, draft_rejected=rejected)
             else:
                 labels.append(DRAFT_READY)
-        elif result.category in (Category.SPAM, Category.OTHER):
+        elif result.category == Category.SPAM or (
+            result.category == Category.OTHER and result.event_date is None
+        ):
             mark_read = True
+        if fields["escalation"]:
+            labels.append(URGENT)
+            fields["urgent_reason"] = (
+                f'escalation: "{result.escalation_quote}"'
+                if result.escalation_quote
+                else "escalation"
+            )
+        elif (
+            result.category == Category.INVOICE
+            and result.due_date is not None
+            and result.due_date < today
+        ):
+            labels.append(URGENT)
+            fields.update(
+                overdue=True,
+                urgent_reason=f"invoice overdue since {result.due_date.isoformat()}",
+            )
     # Labels go on before the draft: a labelled email is skipped next run, so a later failure can never double-draft.
     mailbox.add_labels(email.id, labels)
     fields["labels"] = labels
     if draft_text is not None:
         try:
             fields["draft_id"] = mailbox.create_draft(email, draft_text)
+            fields["draft_text"] = draft_text
         except Exception as e:
             # Draft ready stays on the email next to Needs review; the report marks it failed.
             fields.update(
@@ -167,9 +223,19 @@ def run_triage(
             "draft_rejected": None,
             "truncated": False,
             "error_type": None,
+            "escalation": False,
         }
         try:
-            triage_one(email, mailbox, classifier, drafter, faq, settings, fields)
+            triage_one(
+                email,
+                mailbox,
+                classifier,
+                drafter,
+                faq,
+                settings,
+                started.date(),
+                fields,
+            )
         except Exception as e:
             fields.update(
                 status="failed",
@@ -198,10 +264,86 @@ def run_triage(
         counts=counts,
         skipped_ids=[e.id for e in emails if e not in todo],
         unreadable_ids=mailbox.unreadable,
+        summary=summarize(ok, {e.id: e for e in todo}, counts),
     )
     write_reports(report, {e.id: e for e in todo}, out_dir)
     logger.info("Run {}: {}", report.run_id, counts.model_dump())
     return report
+
+
+def summarize(
+    ok: list[Outcome], emails: dict[str, Email], counts: Counts
+) -> list[SummaryLine]:
+    def ref(o: Outcome) -> str:
+        return f'{o.email_id} "{emails[o.email_id].subject[:60]}"'
+
+    urgent = [o for o in ok if o.urgent_reason]
+    by_hand = [o for o in ok if o.answer_by_hand]
+    scams = [o for o in ok if o.scam_warning]
+    invoices = [o for o in ok if o.category == Category.INVOICE]
+    dated = [o for o in ok if o.event_date is not None]
+    totals: dict[str, float] = {}
+    for o in invoices:
+        if o.amount_due is not None:
+            currency = (o.currency or "?").upper()
+            totals[currency] = totals.get(currency, 0.0) + o.amount_due
+    missing = sum(o.amount_due is None for o in invoices)
+    money = (
+        " + ".join(f"{c} {v:,.2f}" for c, v in sorted(totals.items())) + " total"
+        if totals
+        else "no amount found"
+    )
+    if totals and missing:
+        money += f" ({missing} without an amount)"
+    texts = {
+        "urgent": f"Urgent ({len(urgent)}): "
+        + "; ".join(f"{ref(o)} ({o.urgent_reason})" for o in urgent)
+        if urgent
+        else "Urgent: none",
+        "answer_by_hand": f"Answer by hand ({len(by_hand)}): "
+        + "; ".join(ref(o) for o in by_hand)
+        + " — real customer questions with planted instructions, no draft written"
+        if by_hand
+        else "Answer by hand: none",
+        "scam": f"SCAM WARNING ({len(scams)}): "
+        + "; ".join(
+            f"{ref(o)} → {', '.join(o.scam_domains) or 'asks for bank/card details'}"
+            for o in scams
+        )
+        + " — never send these to customers"
+        if scams
+        else "Scam warnings: none",
+        "invoices": f"Invoices ({len(invoices)}): {money}, {sum(o.overdue for o in invoices)} overdue"
+        if invoices
+        else "Invoices: none",
+        "dated": f"Has a date ({len(dated)}): "
+        + "; ".join(f"{ref(o)} on {o.event_date}" for o in dated)
+        + " — left unread"
+        if dated
+        else "Has a date: none",
+        "drafts": f"Drafts ready to review: {counts.drafts}",
+        "rest": f"Rest: {counts.spam} spam, {sum(o.category == Category.OTHER and o.marked_read for o in ok)} other marked read, "
+        f"{counts.needs_review} need review, {counts.failed} failed, {counts.skipped} skipped",
+    }
+    return [
+        SummaryLine.model_validate({"kind": k, "text": t}) for k, t in texts.items()
+    ]
+
+
+def note(o: Outcome) -> str:
+    return "; ".join(
+        part
+        for part in (
+            BY_HAND_NOTE if o.answer_by_hand else "",
+            f"SCAM: {', '.join(o.scam_domains) or 'asks for bank/card details'}"
+            if o.scam_warning
+            else "",
+            o.urgent_reason or "",
+            f"has a date: {o.event_date}" if o.event_date else "",
+            o.injection_reason or o.draft_rejected or o.error_type or "",
+        )
+        if part
+    )
 
 
 def flags(o: Outcome) -> list[str]:
@@ -209,7 +351,10 @@ def flags(o: Outcome) -> list[str]:
         name
         for name, on in (
             ("FAILED", o.status == "failed"),
+            ("URGENT", o.urgent_reason is not None),
+            ("SCAM", o.scam_warning),
             ("SUSPICIOUS", o.suspicious),
+            ("ANSWER BY HAND", o.answer_by_hand),
             ("NEEDS REVIEW", o.needs_review),
             ("DRAFT", o.draft_id is not None),
         )
@@ -222,15 +367,23 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
     (out_dir / "report.json").write_text(report.model_dump_json(indent=2))
 
     def md(value: object) -> str:
-        return (
-            html.escape(str(value if value is not None else ""))
+        # Defanged so no Markdown viewer turns a URL from an email or the model into a link.
+        text = html.escape(str(value if value is not None else ""), quote=False)
+        return re.sub(
+            r"(?i)\bwww\.",
+            "www[.]",
+            text.replace("://", "[:]//")
             .replace("|", "\\|")
             .replace("\r", " ")
-            .replace("\n", " ")
+            .replace("\n", " "),
         )
 
     lines = [
         f"# Triage run {report.run_id}",
+        "",
+        "## Morning summary",
+        "",
+        *(f"- {md(line.text)}" for line in report.summary),
         "",
         f"Model: {report.model}",
         "",
@@ -242,12 +395,12 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
         "",
         f"Could not be read (retried next run): {', '.join(report.unreadable_ids) or 'none'}",
         "",
-        "| Email | From | Subject | Category | Conf. | Labels | Flags | Reason | Evidence | Note |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| Email | From | Subject | Category | Conf. | Labels | Flags | Reason | Evidence | Note | Draft |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for o in report.outcomes:
         e = emails[o.email_id]
-        note = o.injection_reason or o.draft_rejected or o.error_type or ""
+        draft = "<br>".join(md(line) for line in (o.draft_text or "").splitlines())
         lines.append(
             "| "
             + " | ".join(
@@ -262,10 +415,10 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
                     ", ".join(flags(o)),
                     o.reason,
                     o.evidence_quote,
-                    note,
+                    note(o),
                 )
             )
-            + " |"
+            + f" | {draft} |"
         )
     (out_dir / "report.md").write_text("\n".join(lines) + "\n")
 
@@ -276,6 +429,11 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
         f'<div class="tile"><b>{h(v)}</b><span>{h(k.replace("_", " "))}</span></div>'
         for k, v in report.counts.model_dump().items()
     )
+    alert = " alert" if any(o.scam_warning for o in report.outcomes) else ""
+    summary = "".join(
+        f'<li class="{line.kind}{alert if line.kind == "scam" else ""}">{h(line.text)}</li>'
+        for line in report.summary
+    )
     rows = []
     for o in report.outcomes:
         e = emails[o.email_id]
@@ -283,11 +441,10 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
             f'<span class="chip {h(f.split()[0].lower())}">{h(f)}</span>'
             for f in flags(o)
         )
-        note = o.injection_reason or o.draft_rejected or o.error_type or ""
         conf = f"{o.confidence:.2f}" if o.confidence is not None else ""
         rows.append(
             f"<tr><td>{h(o.email_id)}</td><td>{h(e.sender)}<br><small>{h(e.subject)}</small></td><td>{h(o.category)}</td><td>{h(conf)}</td>"
-            f"<td>{h(', '.join(o.labels))}</td><td>{chips}</td><td>{h(o.reason)}<br><q>{h(o.evidence_quote)}</q></td><td>{h(note)}</td></tr>"
+            f"<td>{h(', '.join(o.labels))}</td><td>{chips}</td><td>{h(o.reason)}<br><q>{h(o.evidence_quote)}</q></td><td>{h(note(o))}</td><td><div class='reply'>{h(o.draft_text)}</div></td></tr>"
         )
     page = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>Triage run {h(report.run_id)}</title>
@@ -302,12 +459,17 @@ th,td{{border-bottom:1px solid #eee;padding:.45rem .5rem;text-align:left;vertica
 th{{background:#f2f0ea;font-size:.8rem;text-transform:uppercase;letter-spacing:.03em}}
 small{{color:#666}} q{{color:#555;font-style:italic}}
 .chip{{display:inline-block;border-radius:10px;padding:0 .5rem;margin:0 .2rem .2rem 0;font-size:.75rem;font-weight:600}}
-.failed{{background:#fde2e1;color:#a11}} .suspicious{{background:#fff0c2;color:#7a5200}} .needs{{background:#e6ecff;color:#1d3d9a}} .draft{{background:#dff5e3;color:#17652a}}
+.summary{{background:#fff;border:1px solid #e3e1da;border-radius:8px;padding:.6rem 1.2rem;margin-bottom:1.5rem;max-width:70rem}}
+.summary h2{{font-size:1.05rem;margin:.3rem 0}} .summary ul{{margin:.2rem 0;padding-left:1.1rem}} .summary li{{margin:.25rem 0}}
+.summary .urgent{{font-weight:600;color:#a11}} .summary .alert{{background:#a11;color:#fff;font-weight:700;font-size:1.05rem;padding:.4rem .6rem;border-radius:6px;list-style:none;margin-left:-1.1rem}}
+.reply{{white-space:pre-wrap;max-width:28rem;font-size:.85rem;color:#333}}
+.chip.failed,.chip.urgent,.chip.scam{{background:#fde2e1;color:#a11}} .chip.answer{{background:#ffe3cc;color:#8a3b00}} .chip.suspicious{{background:#fff0c2;color:#7a5200}} .chip.needs{{background:#e6ecff;color:#1d3d9a}} .chip.draft{{background:#dff5e3;color:#17652a}}
 </style></head><body>
 <h1>Lumenfold support inbox: triage run {h(report.run_id)}</h1>
 <div class="sub">Model {h(report.model)} · started {h(report.started_at.isoformat(timespec="seconds"))} · drafts only, nothing was sent</div>
+<section class="summary"><h2>Morning summary</h2><ul>{summary}</ul></section>
 <div class="tiles">{tiles}</div>
-<table><thead><tr><th>Email</th><th>From / subject</th><th>Category</th><th>Conf.</th><th>Labels</th><th>Flags</th><th>Reason / evidence</th><th>Note</th></tr></thead>
+<table><thead><tr><th>Email</th><th>From / subject</th><th>Category</th><th>Conf.</th><th>Labels</th><th>Flags</th><th>Reason / evidence</th><th>Note</th><th>Draft</th></tr></thead>
 <tbody>{"".join(rows)}</tbody></table>
 <p class="sub">Skipped (already triaged): {h(", ".join(report.skipped_ids) or "none")}<br>Could not be read (retried next run): {h(", ".join(report.unreadable_ids) or "none")}</p>
 </body></html>

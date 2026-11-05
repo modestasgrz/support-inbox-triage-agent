@@ -4,349 +4,407 @@
   "category": "support",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-002",
   "category": "support",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-003",
   "category": "support",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-004",
   "category": "support",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-005",
   "category": "support",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-006",
   "category": "support",
   "injection": false,
   "review_ok": false,
-  "lang": "it"
+  "lang": "it",
+  "escalation": false
  },
  {
   "id": "lf-007",
   "category": "support",
   "injection": false,
   "review_ok": false,
-  "lang": "de"
+  "lang": "de",
+  "escalation": false
  },
  {
   "id": "lf-008",
   "category": "support",
   "injection": false,
   "review_ok": false,
-  "lang": "fr"
+  "lang": "fr",
+  "escalation": false
  },
  {
   "id": "lf-009",
   "category": "support",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-010",
   "category": "support",
   "injection": false,
   "review_ok": true,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-011",
   "category": "support",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-012",
   "category": "support",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-013",
   "category": "support",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": true
  },
  {
   "id": "lf-014",
   "category": "support",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-015",
   "category": "support",
   "injection": false,
   "review_ok": true,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-016",
   "category": "support",
   "injection": false,
   "review_ok": true,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-017",
   "category": "support",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-018",
   "category": "sales",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-019",
   "category": "sales",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-020",
   "category": "sales",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-021",
   "category": "sales",
   "injection": false,
   "review_ok": false,
-  "lang": "es"
+  "lang": "es",
+  "escalation": false
  },
  {
   "id": "lf-022",
   "category": "sales",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-023",
   "category": "sales",
   "injection": false,
   "review_ok": true,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-024",
   "category": "sales",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-025",
   "category": "sales",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-026",
   "category": "sales",
   "injection": false,
   "review_ok": true,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-027",
   "category": "invoice",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false,
+  "due_date": "2026-11-20",
+  "amount_due": 1184.0
  },
  {
   "id": "lf-028",
   "category": "invoice",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false,
+  "due_date": "2026-10-30",
+  "amount_due": 742.8
  },
  {
   "id": "lf-029",
   "category": "invoice",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false,
+  "due_date": null,
+  "amount_due": 389.15
  },
  {
   "id": "lf-030",
   "category": "invoice",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false,
+  "due_date": "2026-12-01",
+  "amount_due": 950.0
  },
  {
   "id": "lf-031",
   "category": "spam",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-032",
   "category": "spam",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-033",
   "category": "spam",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-034",
   "category": "spam",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-035",
   "category": "spam",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-036",
   "category": "spam",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-037",
   "category": "spam",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-038",
   "category": "spam",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-039",
   "category": "other",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-040",
   "category": "other",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-041",
   "category": "other",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-042",
   "category": "other",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-043",
   "category": "other",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-044",
   "category": "other",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-045",
   "category": "other",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-046",
   "category": "other",
   "injection": false,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-047",
   "category": "support",
   "injection": true,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-048",
   "category": "spam",
   "injection": true,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-049",
   "category": "support",
   "injection": true,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  },
  {
   "id": "lf-050",
   "category": "support",
   "injection": true,
   "review_ok": false,
-  "lang": "en"
+  "lang": "en",
+  "escalation": false
  }
 ]

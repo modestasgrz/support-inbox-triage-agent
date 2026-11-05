@@ -127,9 +127,7 @@ def gold_client(
 
     def parse(**kwargs: Any) -> Any:
         content: str = kwargs["messages"][0]["content"]
-        label = by_block[
-            untagged(content.removesuffix("\n\nClassify the email above."))
-        ]
+        label = by_block[untagged(content.split("\n\nReceived: ")[0])]
         return parsed(
             cls(
                 label.category,
@@ -253,7 +251,11 @@ def test_pre_scan_beyond_body_cap_still_flags(tmp_path: Path) -> None:
     box, report = pipeline([mail(body=body)], client, tmp_path)
     assert report.outcomes[0].truncated is True
     assert report.outcomes[0].suspicious is True
-    assert box.labels["m1"] == ["Triage/Support", "Triage/Suspicious"]
+    assert box.labels["m1"] == [
+        "Triage/Support",
+        "Triage/Suspicious",
+        "Triage/Answer by hand",
+    ]
     assert box.drafts == []
 
 
@@ -293,7 +295,11 @@ def test_suspicious_beats_low_confidence(tmp_path: Path) -> None:
     box, report = pipeline(
         [mail()], simple_client(cls(confidence=0.1, injection=True)), tmp_path
     )
-    assert box.labels["m1"] == ["Triage/Support", "Triage/Suspicious"]
+    assert box.labels["m1"] == [
+        "Triage/Support",
+        "Triage/Suspicious",
+        "Triage/Answer by hand",
+    ]
     assert report.outcomes[0].needs_review is False
 
 
@@ -957,7 +963,7 @@ def test_md_row_has_fixed_column_count_with_pipes_and_newlines(tmp_path: Path) -
     ]
     assert len(rows) == 1
     unescaped = rows[0].replace("\\|", "")
-    assert unescaped.count("|") == 11
+    assert unescaped.count("|") == 12
 
 
 def test_report_json_roundtrips_and_has_no_email_text(tmp_path: Path) -> None:
