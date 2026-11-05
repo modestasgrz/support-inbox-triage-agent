@@ -242,6 +242,10 @@ def run_triage(
             if not fields["labels"]:
                 # Nothing reached Gmail, so the row shows no flag that Gmail doesn't have.
                 fields.update(
+                    suspicious=False,
+                    needs_review=False,
+                    injection_reason=None,
+                    event_date=None,
                     answer_by_hand=False,
                     urgent_reason=None,
                     overdue=False,
