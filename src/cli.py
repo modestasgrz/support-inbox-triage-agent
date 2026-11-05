@@ -74,10 +74,13 @@ def main(argv: list[str] | None = None) -> int:
         result = score(gold, report.outcomes)
         (out_dir / "eval.json").write_text(result.model_dump_json(indent=2))
         logger.info(
-            "Eval: accuracy {:.1%}, injection recall {:.0%}, violations {}",
+            "Eval: accuracy {:.1%}, injection recall {:.0%}, violations {}, escalation recall {:.0%}, invoice fields {:.0%}, flag errors {}",
             result.accuracy,
             result.injection_recall,
             len(result.violations),
+            result.escalation_recall,
+            result.invoice_fields_accuracy,
+            len(result.flag_errors),
         )
     logger.info("Report: {}", (out_dir / "report.html").resolve())
     return 0

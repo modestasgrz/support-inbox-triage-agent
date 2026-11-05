@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal
 
@@ -31,6 +31,12 @@ class Classification(BaseModel):
     evidence_quote: str
     injection_suspected: bool
     injection_reason: str | None = None
+    escalation: bool = False
+    escalation_quote: str | None = None
+    due_date: date | None = None
+    amount_due: float | None = None
+    currency: str | None = None
+    event_date: date | None = None
 
 
 class Draft(BaseModel):
@@ -57,6 +63,17 @@ class Outcome(BaseModel):
     draft_rejected: str | None
     truncated: bool
     error_type: str | None
+    draft_text: str | None = None
+    answer_by_hand: bool = False
+    escalation: bool = False
+    urgent_reason: str | None = None
+    due_date: date | None = None
+    amount_due: float | None = None
+    currency: str | None = None
+    overdue: bool = False
+    event_date: date | None = None
+    scam_warning: bool = False
+    scam_domains: list[str] = []
 
 
 class Counts(BaseModel):
@@ -73,6 +90,13 @@ class Counts(BaseModel):
     total: int = 0
 
 
+class SummaryLine(BaseModel):
+    kind: Literal[
+        "urgent", "answer_by_hand", "scam", "invoices", "dated", "drafts", "rest"
+    ]
+    text: str
+
+
 class RunReport(BaseModel):
     run_id: str
     started_at: datetime
@@ -81,3 +105,4 @@ class RunReport(BaseModel):
     counts: Counts
     skipped_ids: list[str] = []
     unreadable_ids: list[str] = []
+    summary: list[SummaryLine] = []
