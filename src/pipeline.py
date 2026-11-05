@@ -494,7 +494,10 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
         key=lambda o: o.urgent_reason is None,
     )
     scams = [o for o in ok if o.scam_warning]
-    drafted = [o for o in ok if o.draft_text is not None]
+    drafted = sorted(
+        (o for o in ok if o.draft_text is not None),
+        key=lambda o: (o.urgent_reason is None, o.category != Category.SUPPORT),
+    )
     invoices = sorted(
         (o for o in ok if o.category == Category.INVOICE),
         key=lambda o: o.due_date or date.max,
@@ -568,13 +571,15 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
         if o.answer_by_hand and urgent:
             extra.append(f'<span class="urgent-line">{urgent}</span>')
         if o.scam_warning:
-            extra.append("Carries a scam attempt — see below.")
+            extra.append(
+                "Has a scam link in it — answer the question, never the link. See below."
+            )
         if o.draft_text is not None:
-            extra.append("Reply drafted — see below.")
+            extra.append("Reply drafted — first in Drafts ready.")
         due = f'<p class="due">Due {h(day(o.due_date))}</p>' if o.due_date else ""
         cards.append(
             f'<article class="card {"urgent" if o.urgent_reason else "by-hand"}" title="email id {h(o.email_id)}">'
-            f'{head(o)}<p class="why">{why}</p>'
+            f'{head(o)}<p class="gist">{h(o.reason)}</p><p class="why">{why}</p>'
             + "".join(f'<p class="also">{x}</p>' for x in extra)
             + f"{due}</article>"
         )
@@ -595,15 +600,32 @@ def write_reports(report: RunReport, emails: dict[str, Email], out_dir: Path) ->
         scam_html = (
             '<section id="scams"><h2>Scam attempts</h2>'
             f'<p class="warn">Don\'t reply · don\'t click.</p><ul class="plain">{items}</ul>'
-            '<p class="quiet">These emails hide instructions or links to fake pages. No reply was drafted. The addresses are broken on purpose so they can\'t be opened.</p></section>'
+            "<p class=\"quiet\">Never reply through, click or pass on these addresses. The customer's real question is in the card above: answer it by hand. The addresses are broken on purpose so they can't be opened.</p></section>"
         )
 
+    groups = {
+        "urgent": "Urgent first",
+        "support": "Customer questions",
+        "sales": "Sales and wholesale",
+    }
     draft_cards = "".join(
-        f'<article class="draft-card" title="email id {h(o.email_id)}">{head(o)}<p class="gist" title="{h(o.reason)}">{h(o.reason)}</p>'
+        (
+            f"<h3>{groups[key]}</h3>"
+            if i == 0
+            or key
+            != (
+                "urgent"
+                if drafted[i - 1].urgent_reason
+                else str(drafted[i - 1].category)
+            )
+            else ""
+        )
+        + f'<article class="draft-card" title="email id {h(o.email_id)}">{head(o)}<p class="gist" title="{h(o.reason)}">{h(o.reason)}</p>'
         f'<div class="toggles"><details class="draft"><summary>Show draft</summary><pre>{h(o.draft_text, defang=False)}</pre>'
         f'<button type="button" class="copy">Copy</button></details>'
         f'<details class="why"><summary>Why</summary><p>They wrote: <q>{h(o.evidence_quote)}</q></p></details></div></article>'
-        for o in drafted
+        for i, o in enumerate(drafted)
+        for key in ["urgent" if o.urgent_reason else str(o.category)]
     )
     drafts_html = (
         f'<section id="drafts"><h2>Drafts ready <span>{len(drafted)}</span></h2>'
@@ -742,14 +764,14 @@ details.why p{{color:var(--soft);font-size:.92rem;margin:.3rem 0 0 1em}} q{{font
 th{{text-align:left;font-weight:500;color:var(--soft);font-size:.85rem;padding:.4rem .8rem .4rem 0;border-bottom:1px solid var(--line)}}
 td{{padding:.6rem .8rem .6rem 0;border-bottom:1px solid var(--line);vertical-align:top}} td+td{{white-space:nowrap}} .num{{text-align:right;white-space:nowrap}}
 #invoices .quiet{{margin-top:.6rem}}
-.tag{{font-size:.8rem;color:var(--soft);border:1px solid var(--line);border-radius:999px;padding:0 .5rem;white-space:nowrap}} .tag.overdue{{color:var(--red);border-color:#e3c9bd}}
+.tag{{font-size:.8rem;color:var(--soft);border:1px solid var(--line);border-radius:999px;padding:0 .5rem;white-space:nowrap}} .tag.overdue{{color:#fff;background:var(--red);border-color:var(--red)}}
 .dates li{{display:grid;grid-template-columns:7.5rem 1fr;gap:1rem}} .date{{font-family:var(--serif)}}
 #rest{{border-top:1px solid var(--line);padding-top:1.2rem}}
 #rest>summary{{font-family:var(--serif);font-size:1.2rem;color:var(--ink)}}
 .small{{font-size:.88rem}} .mono li{{color:var(--soft)}} .mono code{{background:none;border:0;padding:0;color:var(--ink)}}
 footer{{margin-top:3rem;color:var(--soft);font-size:.85rem}}
 @media (max-width:560px){{main{{padding:2.5rem 1.1rem 3rem}} h1{{font-size:1.95rem}} .when{{display:block;font-size:1.1rem;color:var(--soft);margin-bottom:.2rem}} .lede{{font-size:1.05rem}}
-.numbers{{grid-template-columns:repeat(2,1fr);row-gap:.9rem}} .dates li{{grid-template-columns:1fr;gap:.1rem}} #scams{{padding:1.1rem}}}}
+.numbers{{grid-template-columns:repeat(2,1fr);row-gap:.9rem}} thead{{display:none}} tr{{display:grid;grid-template-columns:1fr auto;padding:.6rem 0;border-bottom:1px solid var(--line)}} td{{border:0;padding:0}} td:first-child{{grid-column:1/-1;font-weight:600}} td+td{{white-space:normal}} .num{{text-align:left}} .dates li{{grid-template-columns:1fr;gap:.1rem}} #scams{{padding:1.1rem}}}}
 </style></head><body><main>
 <h1><span class="when">{h(when)} —</span> {title}</h1>
 <p class="lede">{lede}.</p>
