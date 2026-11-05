@@ -244,6 +244,7 @@ def run_triage(
                 fields.update(
                     suspicious=False,
                     needs_review=False,
+                    draft_rejected=None,
                     injection_reason=None,
                     event_date=None,
                     answer_by_hand=False,

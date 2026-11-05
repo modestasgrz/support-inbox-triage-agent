@@ -1095,3 +1095,24 @@ def test_failed_before_labels_shows_only_failed(
     for text in (page, md):
         assert "planted" not in text and "has a date" not in text
     assert "Has a date: none" in md
+
+
+def test_failed_before_labels_note_is_the_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    email = mail(0)
+    box = FakeMailbox([email])
+
+    def fail(email_id: str, names: list[str]) -> None:
+        raise RuntimeError("gmail down")
+
+    monkeypatch.setattr(box, "add_labels", fail)
+    client = make_client(
+        {email.subject: parsed(cls("support"))},
+        {email.subject: message("Pay at https://evil.example/pay")},
+    )
+    _, report = go([email], client, tmp_path, mailbox=box)
+    o = report.outcomes[0]
+    assert o.draft_rejected is None and o.error_type == "RuntimeError"
+    row = next(r for r in table_rows((tmp_path / "report.md").read_text()))
+    assert "RuntimeError" in row[9] and "unknown url" not in row[9]
