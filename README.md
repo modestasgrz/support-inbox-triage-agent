@@ -1,8 +1,8 @@
 # support-inbox-triage-agent
 
-**Demo video (≈1 min):** click the poster to play it.
+**Demo video (≈1 min):**
 
-[![support-inbox-triage-agent demo video](docs/demo/support-inbox-triage-agent-poster.png)](docs/demo/support-inbox-triage-agent-demo.mp4)
+https://github.com/user-attachments/assets/ff169697-07e2-457d-99a3-bc67478f6b3a
 
 AI triage for a small business's shared support inbox. Every new email gets classified and labelled in Gmail. Customer questions get a reply **draft** for a human to check and send. Invoices, unsure emails and prompt-injection attempts are left unread for a person. Each run writes a report that opens with a morning summary (what is urgent, what to answer by hand, scam warnings, invoices, drafts to review) and then shows every email with the evidence behind the decision and the full draft text.
 
