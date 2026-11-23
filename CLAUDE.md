@@ -19,12 +19,14 @@ Support inbox triage agent: a shared support inbox of a fictional small business
 
 ## Agent guardrails (from agent-engineering-framework, don't remove)
 
-Work is specified in `specs/<feature>.md` and built in parallel PARTs. Every thread follows these rules:
+Scope: these rules and the security rules below bind cloud build threads (`CLAUDE_CODE_REMOTE=true`). In a local session with the owner, his global rules apply instead: no commits or pushes unless he asks, he may have `specs/`, tests, `.claude/`, any `Makefile` or `CLAUDE.md` edited, done = he reviewed it. Security rules 1–8 and 11 still hold for code written locally.
+
+Work is specified in `specs/<feature>.md` and built in parallel PARTs. Every cloud build thread follows these rules:
 
 1. Build only your PART. Touch only the files it owns in the spec's work split. Contracts between parts are the spec's Locked decisions; follow them exactly and never change them.
 2. Never edit `specs/` or `tests/acceptance/` (a hook blocks it, CI fails it). If the spec or a test looks wrong, say exactly what and stop.
 3. One draft PR per PART, titled `[<feature-slug>/PART-X] <summary>`. CI reads this title.
-4. Done = `make check` passes + your part's acceptance tests pass (`python3 scripts/agent_guardrails.py run --feature <feature-slug> --part PART-X`) + a summary of both in your final message. Before that, spawn the `qa` agent on your part.
+4. Done = `make check` passes + your part's acceptance tests pass (`python3 scripts/agent_guardrails.py run --feature <feature-slug> --part PART-X`) + a summary of both in your final message. Before that, spawn the `part-qa` agent on your part.
 5. Commit and push work in progress often. The sandbox can restart from a fresh clone.
 6. Outside world: no real API calls, no deploys, no secrets. External services are mocked in tests. If you need a real call, stop and ask.
 7. GitHub: `gh pr` and GraphQL are blocked here. Use `gh api` (REST). Never merge a PR, never mark one ready for review: merging is the owner's job.

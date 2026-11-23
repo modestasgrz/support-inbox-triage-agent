@@ -1,7 +1,8 @@
 """PreToolUse Bash: blocks destructive and remote-code commands everywhere; in cloud threads also blocks dependency
-changes and running unpinned packages. Looks only at commands in command position (shell_parse), so quoted text
-like a commit message or a grep pattern never trips it. Heuristic: a determined agent can hide a command (e.g. in a
-script file); CI and review are the backstop. Wired with "onFailure": "block". Stdlib only, Python 3.9-safe.
+changes, running unpinned packages and starting Claude Code with permission checks off. Looks only at commands in
+command position (shell_parse), so quoted text like a commit message or a grep pattern never trips it. Heuristic: a
+determined agent can hide a command (e.g. in a script file); CI and review are the backstop. Wired with
+"onFailure": "block". Stdlib only, Python 3.9-safe.
 """
 
 import json
@@ -71,7 +72,13 @@ def destructive(command: Command, previous: "Command | None") -> "str | None":
         and not [w for w in args if not w.startswith("-")]
     ):
         return "Piping text into a shell hides what runs; it's blocked. Run the commands directly."
-    if name == "claude" and (
+    return None
+
+
+def skips_permissions(command: Command) -> bool:
+    name, args = program(command), command.words[1:]
+    _, long = flags(args)
+    return name == "claude" and bool(
         {"--dangerously-skip-permissions", "--allow-dangerously-skip-permissions"}
         & long
         or "--permission-mode=bypassPermissions" in args
@@ -79,9 +86,7 @@ def destructive(command: Command, previous: "Command | None") -> "str | None":
             "--permission-mode" in args
             and args[args.index("--permission-mode") + 1 :][:1] == ["bypassPermissions"]
         )
-    ):
-        return "Starting Claude Code with permission checks off is blocked."
-    return None
+    )
 
 
 def changes_dependencies(command: Command) -> bool:
@@ -132,6 +137,8 @@ def reason_for(command_text: str, remote: bool) -> "str | None":
         reason = destructive(command, previous)
         if reason:
             return reason
+        if remote and skips_permissions(command):
+            return "Starting Claude Code with permission checks off is blocked in cloud threads."
         if remote and changes_dependencies(command):
             return "Adding, upgrading or running unpinned packages is blocked in cloud threads. Dependencies come from the lockfile (`make test-setup`). If you need one, stop and ask the owner."
         code = inline_code(command)
