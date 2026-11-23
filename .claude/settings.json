@@ -16,8 +16,7 @@
       "Read(~/.aws/**)",
       "Read(~/.config/gh/**)",
       "Read(~/.modal.toml)"
-    ],
-    "disableBypassPermissionsMode": "disable"
+    ]
   },
   "hooks": {
     "SessionStart": [

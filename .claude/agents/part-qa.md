@@ -1,5 +1,5 @@
 ---
-name: qa
+name: part-qa
 description: Writes and runs extra tests for one PART of a spec beyond its acceptance tests — edge cases and realistic-data cases — inside that part's own test folder, then reports what fails. Builders spawn it before calling their part done. Never edits production code.
 model: opus
 tools: Read, Write, Edit, Grep, Glob, Bash
